@@ -1,0 +1,4 @@
+# Godot 4+ specific ignores
+.godot/
+# Godot sometimes leaves .tmp files on Windows, see https://github.com/godotengine/godot/issues/82270
+*.tmp

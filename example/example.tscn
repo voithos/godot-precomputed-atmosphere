@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3 uid="uid://lfscbmhkvahb"]
+
+[ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://example/atmosphere.gdshader" id="1_uheli"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
+shader = ExtResource("1_uheli")
+
+[sub_resource type="Sky" id="Sky_1bk6c"]
+sky_material = SubResource("ShaderMaterial_n67py")
+
+[sub_resource type="Environment" id="Environment_6fnfb"]
+background_mode = 2
+sky = SubResource("Sky_1bk6c")
+
+[node name="Example" type="Node3D"]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.80893)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -0.944296, 0.329097, 0, -0.329097, -0.944296, 0, 0, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_6fnfb")
