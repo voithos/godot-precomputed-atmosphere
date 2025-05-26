@@ -1,6 +1,7 @@
-[gd_scene load_steps=5 format=3 uid="uid://lfscbmhkvahb"]
+[gd_scene load_steps=6 format=3 uid="uid://lfscbmhkvahb"]
 
-[ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://example/atmosphere.gdshader" id="1_uheli"]
+[ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://atmosphere/atmosphere.gdshader" id="1_uheli"]
+[ext_resource type="PackedScene" uid="uid://ve8x6dleo3sr" path="res://atmosphere/atmosphere.tscn" id="2_pjyox"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
@@ -22,3 +23,5 @@ transform = Transform3D(1, 0, 0, 0, -0.944296, 0.329097, 0, -0.329097, -0.944296
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_6fnfb")
+
+[node name="Atmosphere" parent="." instance=ExtResource("2_pjyox")]

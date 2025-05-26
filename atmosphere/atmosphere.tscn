@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="uid://ve8x6dleo3sr"]
+
+[ext_resource type="Script" uid="uid://b3j56yqr0ksp1" path="res://atmosphere/atmosphere.gd" id="1_660kc"]
+
+[node name="Atmosphere" type="Node3D"]
+script = ExtResource("1_660kc")
+
+[node name="DebugView" type="Node2D" parent="."]
+
+[node name="Transmittance" type="TextureRect" parent="DebugView"]
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="MultipleScattering" type="TextureRect" parent="DebugView"]
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="SkyView" type="TextureRect" parent="DebugView"]
+offset_right = 40.0
+offset_bottom = 40.0
