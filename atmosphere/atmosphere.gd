@@ -81,7 +81,7 @@ func _initialize_debug_rects() -> void:
 func _cleanup() -> void:
 	RenderingServer.call_on_render_thread(_cleanup_compute_resources)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if directional_light == null:
 		push_error("Atmosphere needs a directional light hooked up")
 		return
@@ -118,11 +118,13 @@ var transmittance_shader: RID
 var transmittance_pipeline: RID
 var transmittance_lut: RID
 var transmittance_uniform_set: RID
+var transmittance_sampler: RID
 
 var ms_shader: RID
 var ms_pipeline: RID
 var ms_lut: RID
 var ms_uniform_set: RID
+var ms_sampler: RID
 
 var skyview_shader: RID
 var skyview_pipeline: RID
@@ -225,9 +227,10 @@ func _initialize_compute_resources():
 	transmittance_lut = create_texture_2d(transmittance_lut_size, TEXTURE_FORMAT)
 	_transmittance_debug_texture.texture_rd_rid = transmittance_lut
 	transmittance_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, atmosphere_params_storage_buffer),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, transmittance_lut),
+		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [transmittance_lut]),
 	], transmittance_shader, 0)
+	transmittance_sampler = create_sampler()
 
 	# MS LUT shader.
 	ms_shader = load_compute_shader("res://atmosphere/ms_lut.comp")
@@ -235,20 +238,21 @@ func _initialize_compute_resources():
 	ms_lut = create_texture_2d(ms_lut_size, TEXTURE_FORMAT)
 	_ms_debug_texture.texture_rd_rid = ms_lut
 	ms_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, atmosphere_params_storage_buffer),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, ms_lut),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, transmittance_lut),
+		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ms_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
 	], ms_shader, 0)
+	ms_sampler = create_sampler()
 
 	skyview_shader = load_compute_shader("res://atmosphere/skyview_lut.comp")
 	skyview_pipeline = create_compute_pipeline(skyview_shader)
 	skyview_lut = create_texture_2d(skyview_lut_size, TEXTURE_FORMAT)
 	_skyview_debug_texture.texture_rd_rid = skyview_lut
 	skyview_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, atmosphere_params_storage_buffer),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, skyview_lut),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, transmittance_lut),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 3, ms_lut),
+		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [skyview_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [ms_sampler, ms_lut]),
 	], skyview_shader, 0)
 
 func _encode_transmittance_push_constants() -> PackedByteArray:
@@ -298,8 +302,8 @@ func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
 	var transmittance_push_constants := _encode_transmittance_push_constants()
 	rd.compute_list_set_push_constant(compute_list, transmittance_push_constants, transmittance_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, transmittance_uniform_set, 0)
-	var workgroup_size := workgroup_size(transmittance_lut_size)
-	rd.compute_list_dispatch(compute_list, workgroup_size.x, workgroup_size.y, 1)
+	var transmittance_workgroup_size := workgroup_size(transmittance_lut_size)
+	rd.compute_list_dispatch(compute_list, transmittance_workgroup_size.x, transmittance_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, ms_pipeline)
 	var ms_push_constants := _encode_ms_push_constants()
@@ -317,8 +321,8 @@ func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
 
 	rd.compute_list_end()
 
-	# TODO: do we need rd.submit()?
-	# also remember rd.barrier(RenderingDevice.BARRIER_MASK_COMPUTE) for later
+	# We don't need to manually call rd.submit() since we're using the main rendering device;
+	# only local devices are allowed to manually submit/sync.
 
 func _cleanup_compute_resources():
 	assert(RenderingServer.is_on_render_thread())
@@ -336,11 +340,12 @@ func create_storage_buffer(array: PackedByteArray) -> RID:
 	rids.push_back(buffer)
 	return buffer
 
-func uniform(type: RenderingDevice.UniformType, binding: int, rid: RID) -> RDUniform:
+func uniform(type: RenderingDevice.UniformType, binding: int, ids: Array[RID]) -> RDUniform:
 	var u := RDUniform.new()
 	u.uniform_type = type
 	u.binding = binding
-	u.add_id(rid)
+	for rid in ids:
+		u.add_id(rid)
 	return u
 
 func create_uniform_set(uniforms: Array[RDUniform], shader: RID, shader_set: int) -> RID:
@@ -367,6 +372,14 @@ func create_texture_2d(size: Vector2i, format: RenderingDevice.DataFormat) -> RI
 	var texture := rd.texture_create(tf, RDTextureView.new())
 	rids.push_back(texture)
 	return texture
+
+func create_sampler() -> RID:
+	var ss := RDSamplerState.new()
+	ss.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
+	ss.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
+	var sampler := rd.sampler_create(ss)
+	rids.push_back(sampler)
+	return sampler
 
 # Returns required workgroup size to process a given texture, given configured LOCAL_SIZE.
 func workgroup_size(texture_size: Vector2i) -> Vector2i:

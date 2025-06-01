@@ -26,9 +26,8 @@ storage;
 layout(rgba32f, set = 0, binding = 1) uniform
     restrict writeonly image2D skyview_lut;
 
-layout(rgba32f, set = 0, binding = 2) uniform
-    restrict readonly image2D transmittance_lut;
-layout(rgba32f, set = 0, binding = 3) uniform restrict readonly image2D ms_lut;
+layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
+layout(set = 0, binding = 3) uniform sampler2D ms_lut;
 
 void main() {
   ivec2 texture_size = push_constants.texture_size;
@@ -37,6 +36,7 @@ void main() {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord, texture_size);
-  vec4 color = vec4(push_constants.camera_position, 1.0);
+  vec4 color =
+      vec4(texture(transmittance_lut, uv).rgb + vec3(0.5, 0.0, 0.0), 1.0);
   imageStore(skyview_lut, texel_coord, color);
 }
