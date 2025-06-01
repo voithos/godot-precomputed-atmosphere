@@ -1,0 +1,38 @@
+// NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
+// add Godot's #[compute] hint to the top of the file (which would break
+// shader_compile_spirv_from_source).
+#version 450
+
+#pragma include "res://atmosphere/common.glsl.inc"
+
+// Perform work in 8x8 == 64 local threads. For reference, NVIDIA warps are 32,
+// AMD GPUs use 64.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant, std430) uniform PushConstants {
+  ivec2 texture_size;
+  int dir_samples;
+  int raymarch_steps;
+}
+push_constants;
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
+  AtmosphereParams params;
+}
+storage;
+
+layout(rgba32f, set = 0, binding = 1) uniform restrict writeonly image2D ms_lut;
+
+layout(rgba32f, set = 0, binding = 2) uniform
+    restrict readonly image2D transmittance_lut;
+
+void main() {
+  ivec2 texture_size = push_constants.texture_size;
+  ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+  if (out_of_bounds(texel_coord, texture_size)) {
+    return;
+  }
+  vec2 uv = texel_center_uv(texel_coord, texture_size);
+  vec4 color = vec4(0.0, uv, 1.0);
+  imageStore(ms_lut, texel_coord, color);
+}

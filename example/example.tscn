@@ -16,12 +16,13 @@ sky = SubResource("Sky_1bk6c")
 [node name="Example" type="Node3D"]
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.80893)
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -0.944296, 0.329097, 0, -0.329097, -0.944296, 0, 0, 0)
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 0, 0)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_6fnfb")
 
-[node name="Atmosphere" parent="." instance=ExtResource("2_pjyox")]
+[node name="Atmosphere" parent="." node_paths=PackedStringArray("directional_light") instance=ExtResource("2_pjyox")]
+directional_light = NodePath("../DirectionalLight3D")
+debug_draw = true
