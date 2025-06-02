@@ -19,7 +19,8 @@ extends Node3D
 # Note that we access these variables from the render thread. Normally it'd be better to .bind() specific values to improve thread safety and guarantee a consistent snapshot of values for a given frame,
 # Accessing these variables from the render thread is unsafe, should .bind() it instead
 
-# These factors differ a bit from common implementations, see https://forums.flightsimulator.com/t/replace-the-atmosphere-parameters-with-more-accurate-ones-from-arpc/607603
+# These factors differ a bit from common implementations, see
+# https://forums.flightsimulator.com/t/replace-the-atmosphere-parameters-with-more-accurate-ones-from-arpc/607603
 @export var rayleigh_scattering_factor: Color = Color(0.22456112907, 0.41971499107, 1.0)
 @export var rayleigh_scattering_scale: float = 29.412623e-3 # TODO: why are these all -3 instead of -6
 @export var mie_scattering_factor: Color = Color(1.0, 1.0, 1.0)

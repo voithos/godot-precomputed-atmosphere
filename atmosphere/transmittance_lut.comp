@@ -1,3 +1,7 @@
+// Renders the transmittance LUT, parameterized by UV with U representing sun
+// zenith angle, and V representing height in atmosphere relative to atmosphere
+// thickness.
+
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break
 // shader_compile_spirv_from_source).
@@ -30,7 +34,7 @@ const float OFFSET_SEGMENT_T = 0.3;
 
 // Computes the transmittance through the atmosphere from a starting position,
 // raymarching towards a sun direction. Assumes earth is at origin.
-vec3 sun_transmittance(vec3 pos, vec3 sun_dir) {
+vec3 raymarch_transmittance(vec3 pos, vec3 sun_dir) {
   AtmosphereParams params = stor.params;
   // No (direct path) transmittance if sun is below ground.
   if (sphere_intersect_dist(pos, sun_dir, params.ground_radius_km) > 0.0) {
@@ -70,6 +74,8 @@ void main() {
   // Generate a sun direction based on zenith angle.
   vec3 sun_dir = normalize(
       vec3(0.0, zah.cos_zenith_angle, -cos_to_sin(zah.cos_zenith_angle)));
-  vec4 color = vec4(sun_transmittance(pos, sun_dir), 1.0);
+  vec3 transmittance = raymarch_transmittance(pos, sun_dir);
+
+  vec4 color = vec4(transmittance, 1.0);
   imageStore(transmittance_lut, texel_coord, color);
 }

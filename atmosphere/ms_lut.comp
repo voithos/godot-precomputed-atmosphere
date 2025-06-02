@@ -1,3 +1,10 @@
+// Renders the multiple-scattering LUT, parameterized by UV with U representing
+// sun zenith angle, and V representing height in atmosphere relative to
+// atmosphere thickness. This is based on the paper 'A Scalable and Production
+// Ready Sky and Atmosphere Rendering Technique' by Sebastien Hillaire.
+// The resulting LUT texels will contain the MS approximation in equation 10 of
+// the paper.
+
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break
 // shader_compile_spirv_from_source).
@@ -25,6 +32,122 @@ layout(rgba32f, set = 0, binding = 1) uniform restrict writeonly image2D ms_lut;
 
 layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
 
+// Segment offset in the range (0, 1) exclusive, to avoid sampling at segment
+// edges. Specific value seems arbitrary, but was taken from example
+// implementations.
+const float OFFSET_SEGMENT_T = 0.3;
+const float OFFSET_SAMPLE_THETA = 0.3;
+const float OFFSET_SAMPLE_PHI = 0.5;
+
+// Converts spherical coordinates to a direction vector.
+vec3 spherical_dir(float theta, float phi) {
+  float cos_phi = cos(phi);
+  float sin_phi = sin(phi);
+  float cos_theta = cos(theta);
+  float sin_theta = sin(theta);
+  return vec3(sin_phi * sin_theta, cos_phi, sin_phi * cos_theta);
+}
+
+// Multiple-scattering results.
+struct MSResult {
+  // Second-order scattering luminance.
+  vec3 luminance;
+  // Transfer factor, see equation 7 in paper.
+  vec3 transfer_factor;
+};
+
+// Computes multiple-scattering results by integrating multiple sample
+// directions and raymarching along them.
+MSResult raymarch_multiple_scattering(vec3 pos, vec3 sun_dir) {
+  AtmosphereParams params = stor.params;
+  MSResult res;
+  res.luminance = vec3(0.0);
+  res.transfer_factor = vec3(0.0);
+
+  float sample_weight = 1.0 / float(pc.dir_samples * pc.dir_samples);
+  // Sample dir_samples^2 directions around the given position.
+  for (int x = 0; x < pc.dir_samples; x++) {
+    for (int y = 0; y < pc.dir_samples; y++) {
+      // Integral is symmetric around theta = 0, so we only need to integrate
+      // from 0 -> PI, not 2*PI.
+      float theta =
+          PI * (float(x) + OFFSET_SAMPLE_THETA) / float(pc.dir_samples);
+      // We use acos() to correctly get a uniform distribution.
+      // https://mathworld.wolfram.com/SpherePointPicking.html
+      float phi = safe_acos(1.0 - 2.0 * (float(y) + OFFSET_SAMPLE_PHI) /
+                                      float(pc.dir_samples));
+
+      vec3 ray_dir = spherical_dir(theta, phi);
+
+      float atmo_dist = sphere_intersect_dist(
+          pos, ray_dir,
+          params.ground_radius_km + params.atmosphere_thickness_km);
+      float ground_dist =
+          sphere_intersect_dist(pos, ray_dir, params.ground_radius_km);
+      // Pick max t to raymarch based on if we hit the ground or the edge of the
+      // atmosphere.
+      float max_dist = ground_dist > 0.0 ? ground_dist : atmo_dist;
+
+      float ray_cos_theta = dot(ray_dir, sun_dir);
+      float rayleigh_phase_v = rayleigh_phase(ray_cos_theta);
+      float mie_phase_v = mie_phase(ray_cos_theta, params.mie_g);
+
+      vec3 luminance = vec3(0.0);
+      vec3 transfer_factor = vec3(0.0);
+      vec3 transmittance = vec3(1.0);
+      float t = 0.0;
+      // Raymarch in-scattering luminance.
+      for (int i = 0; i < pc.raymarch_steps; i++) {
+        float next_t =
+            ((float(i) + OFFSET_SEGMENT_T) / float(pc.raymarch_steps)) *
+            max_dist;
+        float dt = next_t - t;
+        float t = next_t;
+
+        vec3 sample_pos = pos + t * ray_dir;
+        float height_km = length(sample_pos) - params.ground_radius_km;
+        Scattering s = scattering(height_km, params);
+
+        vec3 sun_transmittance = sample_zenith_angle_height_lut(
+            transmittance_lut, sample_pos, sun_dir, params.ground_radius_km,
+            params.atmosphere_thickness_km);
+        vec3 rayleigh_inscattering = s.rayleigh * rayleigh_phase_v;
+        vec3 mie_inscattering = s.mie * mie_phase_v;
+        vec3 inscattering =
+            (rayleigh_inscattering + mie_inscattering) * sun_transmittance;
+
+        // Equation 6 in the paper, compute the resulting luminance.
+        vec3 sample_transmittance = exp(-dt * s.extinction);
+        vec3 scattering_integral =
+            (inscattering - inscattering * sample_transmittance) / s.extinction;
+
+        vec3 scattering_coefficients = s.rayleigh + s.mie;
+        vec3 scattering_f = (scattering_coefficients -
+                             scattering_coefficients * sample_transmittance) /
+                            s.extinction;
+        transfer_factor += transmittance * scattering_f;
+        luminance += scattering_integral * transmittance;
+        transmittance *= sample_transmittance;
+      }
+
+      if (ground_dist > 0.0 && dot(pos, sun_dir) > 0.0) {
+        vec3 hit_pos = pos + ground_dist * ray_dir;
+        // Snap to ground radius to avoid precision issues.
+        hit_pos = normalize(hit_pos) * params.ground_radius_km;
+        luminance +=
+            transmittance * params.ground_albedo *
+            sample_zenith_angle_height_lut(transmittance_lut, hit_pos, sun_dir,
+                                           params.ground_radius_km,
+                                           params.atmosphere_thickness_km);
+      }
+
+      res.luminance += luminance * sample_weight;
+      res.transfer_factor += transfer_factor * sample_weight;
+    }
+  }
+  return res;
+}
+
 void main() {
   ivec2 texture_size = pc.texture_size;
   ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
@@ -32,6 +155,21 @@ void main() {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord, texture_size);
-  vec4 color = vec4(0.0, uv, 1.0);
+
+  ZenithAngleHeight zah =
+      uv_to_zenith_angle_height(uv, stor.params.atmosphere_thickness_km);
+  // Set a virtual starting position based on height in atmosphere.
+  vec3 pos = vec3(0.0, zah.height_km + stor.params.ground_radius_km, 0.0);
+  // Generate a sun direction based on zenith angle.
+  vec3 sun_dir = normalize(
+      vec3(0.0, zah.cos_zenith_angle, -cos_to_sin(zah.cos_zenith_angle)));
+
+  MSResult ms_result = raymarch_multiple_scattering(pos, sun_dir);
+  // Equation 10 from the paper, which computes the transfer factor based on the
+  // 2nd order scattering. The result can be multiplied with illuminance to get
+  // the MS contribution.
+  vec3 psi = ms_result.luminance / (1.0 - ms_result.transfer_factor);
+
+  vec4 color = vec4(psi, 1.0);
   imageStore(ms_lut, texel_coord, color);
 }
