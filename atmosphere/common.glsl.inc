@@ -5,6 +5,15 @@
 // Want high precision floats due to distances involved.
 precision highp float;
 
+// Rayleigh and mie scattering have a max height before they stop having an
+// effect.
+const float RAYLEIGH_MAX_HEIGHT_KM = 8.0;
+const float MIE_MAX_HEIGHT_KM = 1.2;
+
+// Ozone absorption peaks at a specific height, and falls off around it.
+const float OZONE_PEAK_ABSORPTION_HEIGHT_KM = 40.179;
+const float OZONE_ABSORPTION_FALLOFF_KM = 17.83;
+
 // Common atmospheric scattering parameters. These are expected to be loaded
 // from a storage buffer, so the parameter order is intentionally made to
 // minimize padding (std430 alignment, vec4 / 16 bytes).
@@ -28,4 +37,76 @@ vec2 texel_center_uv(ivec2 texel_coord, ivec2 texture_size) {
 bool out_of_bounds(ivec2 texel_coord, ivec2 texture_size) {
   return (texel_coord.x > texture_size.x) || (texel_coord.y > texture_size.y);
 }
+
+// Converts cosine to sine, based on the identity
+// sin^2(theta) + cos^2(theta) = 1.
+float cos_to_sin(const float cos_theta) {
+  return sqrt(1.0 - cos_theta * cos_theta);
+}
+
+struct ZenithAngleHeight {
+  // The cosine of the sun's zenith angle.
+  float cos_zenith_angle;
+  // Height above ground.
+  float height_km;
+};
+
+// Maps a UV in the range [0, 1] to the sun's zenith angle (x) and height above
+// ground (y) based on atmosphere thickness.
+ZenithAngleHeight uv_to_zenith_angle_height(vec2 uv,
+                                            float atmosphere_thickness_km) {
+  ZenithAngleHeight res;
+  res.cos_zenith_angle = 2.0 * uv.x - 1.0;
+  res.height_km = atmosphere_thickness_km * uv.y;
+  return res;
+}
+
+// Computes ray intersection with a sphere and returns the distance. ra is the
+// radius of the sphere (assumed to be at origin).
+// If the ray is inside the sphere, returns the positive distance to the edge of
+// the sphere. Returns a negative value if there is no intersection.
+float sphere_intersect_dist(vec3 ro, vec3 rd, float ra) {
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - ra * ra;
+  if (c > 0.0 && b > 0.0)
+    return -1.0;
+  float discr = b * b - c;
+  if (discr < 0.0)
+    return -1.0;
+  // Use far discriminant if we're inside the sphere.
+  if (discr > b * b)
+    return (-b + sqrt(discr));
+  return -b - sqrt(discr);
+}
+
+// Scattering values computed at a specific height.
+struct Scattering {
+  vec3 rayleigh;
+  vec3 mie;
+  // Extinction is a combination of rayleigh/mie scattering in addition to mie
+  // and ozone absorption.
+  vec3 extinction;
+};
+
+// Computes scattering and extinction factors for a given height in atmosphere.
+Scattering scattering(float height_km, AtmosphereParams params) {
+  Scattering s;
+  // Compute scattering.
+  float rayleigh_density = exp(-height_km / RAYLEIGH_MAX_HEIGHT_KM);
+  float mie_density = exp(-height_km / MIE_MAX_HEIGHT_KM);
+  s.rayleigh = params.rayleigh_scattering_coefficient * rayleigh_density;
+  s.mie = params.mie_scattering_coefficient * mie_density;
+
+  // Compute extinction factors.
+  vec3 mie_absorption = params.mie_absorption_coefficient * mie_density;
+  // Approximate ozone peak+falloff with a linear coefficient.
+  float ozone_density =
+      max(1.0 - abs(height_km - OZONE_PEAK_ABSORPTION_HEIGHT_KM) /
+                    OZONE_ABSORPTION_FALLOFF_KM,
+          0.0);
+  vec3 ozone_absorption = params.ozone_absorption_coefficient * ozone_density;
+  s.extinction = s.rayleigh + s.mie + mie_absorption + ozone_absorption;
+  return s;
+}
+
 #endif

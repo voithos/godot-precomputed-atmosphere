@@ -13,23 +13,63 @@ layout(push_constant, std430) uniform PushConstants {
   ivec2 texture_size;
   int raymarch_steps;
 }
-push_constants;
+pc;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
   AtmosphereParams params;
 }
-storage;
+stor;
 
 layout(rgba32f, set = 0, binding = 1) uniform
     restrict writeonly image2D transmittance_lut;
 
+// Segment offset in the range (0, 1) exclusive, to avoid sampling at segment
+// edges. Specific value seems arbitrary, but was taken from example
+// implementations.
+const float OFFSET_SEGMENT_T = 0.3;
+
+// Computes the transmittance through the atmosphere from a starting position,
+// raymarching towards a sun direction. Assumes earth is at origin.
+vec3 sun_transmittance(vec3 pos, vec3 sun_dir) {
+  AtmosphereParams params = stor.params;
+  // No (direct path) transmittance if sun is below ground.
+  if (sphere_intersect_dist(pos, sun_dir, params.ground_radius_km) > 0.0) {
+    return vec3(0.0);
+  }
+  float atmo_dist = sphere_intersect_dist(
+      pos, sun_dir, params.ground_radius_km + params.atmosphere_thickness_km);
+  float t = 0.0;
+  vec3 optical_depth = vec3(0.0);
+  // Raymarch optical depth.
+  for (int i = 0; i < pc.raymarch_steps; i++) {
+    float next_t =
+        ((float(i) + OFFSET_SEGMENT_T) / float(pc.raymarch_steps)) * atmo_dist;
+    float dt = next_t - t;
+    float t = next_t;
+
+    vec3 sample_pos = pos + t * sun_dir;
+    float height_km = length(sample_pos) - params.ground_radius_km;
+    Scattering s = scattering(height_km, params);
+    optical_depth += dt * s.extinction;
+  }
+  return exp(-optical_depth);
+}
+
 void main() {
-  ivec2 texture_size = push_constants.texture_size;
+  ivec2 texture_size = pc.texture_size;
   ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
   if (out_of_bounds(texel_coord, texture_size)) {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord, texture_size);
-  vec4 color = vec4(uv, 0.0, 1.0);
+
+  ZenithAngleHeight zah =
+      uv_to_zenith_angle_height(uv, stor.params.atmosphere_thickness_km);
+  // Set a virtual starting position based on height in atmosphere.
+  vec3 pos = vec3(0.0, zah.height_km + stor.params.ground_radius_km, 0.0);
+  // Generate a sun direction based on zenith angle.
+  vec3 sun_dir = normalize(
+      vec3(0.0, zah.cos_zenith_angle, -cos_to_sin(zah.cos_zenith_angle)));
+  vec4 color = vec4(sun_transmittance(pos, sun_dir), 1.0);
   imageStore(transmittance_lut, texel_coord, color);
 }

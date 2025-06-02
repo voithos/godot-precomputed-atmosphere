@@ -16,12 +16,12 @@ layout(push_constant, std430) uniform PushConstants {
   vec3 camera_position;
   vec3 sun_direction;
 }
-push_constants;
+pc;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
   AtmosphereParams params;
 }
-storage;
+stor;
 
 layout(rgba32f, set = 0, binding = 1) uniform
     restrict writeonly image2D skyview_lut;
@@ -30,7 +30,7 @@ layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
 layout(set = 0, binding = 3) uniform sampler2D ms_lut;
 
 void main() {
-  ivec2 texture_size = push_constants.texture_size;
+  ivec2 texture_size = pc.texture_size;
   ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
   if (out_of_bounds(texel_coord, texture_size)) {
     return;
