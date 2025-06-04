@@ -32,13 +32,6 @@ layout(rgba32f, set = 0, binding = 1) uniform restrict writeonly image2D ms_lut;
 
 layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
 
-// Segment offset in the range (0, 1) exclusive, to avoid sampling at segment
-// edges. Specific value seems arbitrary, but was taken from example
-// implementations.
-const float OFFSET_SEGMENT_T = 0.3;
-const float OFFSET_SAMPLE_THETA = 0.3;
-const float OFFSET_SAMPLE_PHI = 0.5;
-
 // Converts spherical coordinates to a direction vector.
 vec3 spherical_dir(float theta, float phi) {
   float cos_phi = cos(phi);
@@ -102,7 +95,7 @@ MSResult raymarch_multiple_scattering(vec3 pos, vec3 sun_dir) {
             ((float(i) + OFFSET_SEGMENT_T) / float(pc.raymarch_steps)) *
             max_dist;
         float dt = next_t - t;
-        float t = next_t;
+        t = next_t;
 
         vec3 sample_pos = pos + t * ray_dir;
         float height_km = length(sample_pos) - params.ground_radius_km;

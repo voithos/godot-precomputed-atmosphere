@@ -12,6 +12,13 @@ float saturate(float v) { return clamp(v, 0.0, 1.0); }
 // Define up vector to align with Godot's +Y convention.
 const vec3 UP = vec3(0.0, 1.0, 0.0);
 
+// Segment offset in the range (0, 1) exclusive, to avoid sampling at segment
+// edges. Specific value seems arbitrary, but was taken from example
+// implementations.
+const float OFFSET_SEGMENT_T = 0.3;
+const float OFFSET_SAMPLE_THETA = 0.3;
+const float OFFSET_SAMPLE_PHI = 0.5;
+
 // Rayleigh and mie scattering have a max height before they stop having an
 // effect.
 const float RAYLEIGH_MAX_HEIGHT_KM = 8.0;
@@ -90,10 +97,35 @@ vec3 sample_zenith_angle_height_lut(sampler2D lut, vec3 pos, vec3 sun_dir,
   return texture(lut, uv).rgb;
 }
 
-// Computes ray intersection with a sphere and returns the distance. ra is the
-// radius of the sphere (assumed to be at origin).
-// If the ray is inside the sphere, returns the positive distance to the edge of
-// the sphere. Returns a negative value if there is no intersection.
+struct AzAlt {
+  // Azimuth angle, [-PI, PI].
+  float azimuth;
+  // Altitude angle.
+  float altitude;
+};
+
+// Computes an azimuth-altitude angle based on UVs. Uses a nonlinear mapping
+// relative to texture UVs in order to concentrate more texels near the horizon
+AzAlt uv_to_az_alt(vec2 uv, float height_km, float ground_radius_km) {
+  AzAlt aa;
+  // Map [0, 1] to [-PI, PI].
+  aa.azimuth = (uv.x - 0.5) * 2.0 * PI;
+
+  float linear_v = 2.0 * uv.y - 1.0;
+  float nonlinear_v = linear_v * linear_v * sign(linear_v);
+
+  float radius_km = height_km + ground_radius_km;
+  float horizon_dist =
+      sqrt(radius_km * radius_km - ground_radius_km * ground_radius_km);
+  float horizon_angle = 0.5 * PI - safe_acos(horizon_dist / radius_km);
+  aa.altitude = linear_v * 0.5 * PI - horizon_angle;
+  return aa;
+}
+
+// Computes ray intersection with a sphere and returns the distance. ra is
+// the radius of the sphere (assumed to be at origin). If the ray is inside
+// the sphere, returns the positive distance to the edge of the sphere.
+// Returns a negative value if there is no intersection.
 float sphere_intersect_dist(vec3 ro, vec3 rd, float ra) {
   float b = dot(ro, rd);
   float c = dot(ro, ro) - ra * ra;
@@ -106,6 +138,25 @@ float sphere_intersect_dist(vec3 ro, vec3 rd, float ra) {
   if (discr > b * b)
     return (-b + sqrt(discr));
   return -b - sqrt(discr);
+}
+
+struct SphereHit {
+  float entry;
+  float exit;
+};
+
+// Computes ray intersection with a sphere and returns the entry/exit points. ra
+// is the radius of the sphere (at origin). If the ray origin is inside the
+// sphere, 'entry' will be negative. If there is no intersection, 'exit' will be
+// negative.
+SphereHit sphere_intersect(vec3 ro, vec3 rd, float ra) {
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - ra * ra;
+  float h = b * b - c;
+  if (h < 0.0)
+    return SphereHit(-1.0, -1.0); // No hit.
+  h = sqrt(h);
+  return SphereHit(-b - h, -b + h);
 }
 
 // Rayleigh phase function for a given cosine of scattering angle.
@@ -151,6 +202,80 @@ Scattering scattering(float height_km, AtmosphereParams params) {
   vec3 ozone_absorption = params.ozone_absorption_coefficient * ozone_density;
   s.extinction = s.rayleigh + s.mie + mie_absorption + ozone_absorption;
   return s;
+}
+
+struct SkyResult {
+  vec3 luminance;
+  vec3 transmittance;
+};
+
+// Raymarch sky luminance from a starting position and ray dir, based on
+// precomputed transmittance and multiple-scattering LUTs.
+SkyResult raymarch_sky(vec3 pos, vec3 ray_dir, vec3 sun_dir, int raymarch_steps,
+                       AtmosphereParams params, sampler2D transmittance_lut,
+                       sampler2D ms_lut) {
+  SkyResult sky;
+  sky.luminance = vec3(0.0);
+  sky.transmittance = vec3(1.0);
+
+  SphereHit atmo_hit = sphere_intersect(
+      pos, ray_dir, params.ground_radius_km + params.atmosphere_thickness_km);
+  if (atmo_hit.exit < 0.0) {
+    // No hit.
+    return sky;
+  }
+  float from_dist = max(atmo_hit.entry, 0.0);
+  float to_dist = atmo_hit.exit;
+
+  float ground_dist =
+      sphere_intersect_dist(pos, ray_dir, params.ground_radius_km);
+  if (ground_dist > 0.0) {
+    to_dist = ground_dist;
+  }
+
+  // Start marching!
+  vec3 start_pos = pos + from_dist * ray_dir;
+  float ray_cos_theta = dot(ray_dir, sun_dir);
+  float rayleigh_phase_v = rayleigh_phase(ray_cos_theta);
+  float mie_phase_v = mie_phase(ray_cos_theta, params.mie_g);
+
+  float t = 0.0;
+  float t_max = to_dist - from_dist;
+  for (int i = 0; i < raymarch_steps; i++) {
+    float next_t =
+        ((float(i) + OFFSET_SEGMENT_T) / float(raymarch_steps)) * t_max;
+    float dt = next_t - t;
+    t = next_t;
+
+    vec3 sample_pos = start_pos + t * ray_dir;
+    float height_km = length(sample_pos) - params.ground_radius_km;
+
+    Scattering s = scattering(height_km, params);
+
+    vec3 sample_transmittance = exp(-dt * s.extinction);
+    vec3 sun_transmittance = sample_zenith_angle_height_lut(
+        transmittance_lut, sample_pos, sun_dir, params.ground_radius_km,
+        params.atmosphere_thickness_km);
+
+    // Add multiple scattering contribution.
+    vec3 psi_ms = sample_zenith_angle_height_lut(
+                      ms_lut, sample_pos, sun_dir, params.ground_radius_km,
+                      params.atmosphere_thickness_km) *
+                  params.ms_contribution;
+
+    // We apply the MS contribution to the base scattering.
+    vec3 rayleigh_inscattering =
+        s.rayleigh * (rayleigh_phase_v * sun_transmittance + psi_ms);
+    vec3 mie_inscattering = s.mie * (mie_phase_v * sun_transmittance + psi_ms);
+    vec3 inscattering = rayleigh_inscattering + mie_inscattering;
+
+    vec3 scattering_integral =
+        (inscattering - inscattering * sample_transmittance) / s.extinction;
+
+    sky.luminance += scattering_integral * sky.transmittance;
+    sky.transmittance *= sample_transmittance;
+  }
+  return sky;
 }
 
 #endif

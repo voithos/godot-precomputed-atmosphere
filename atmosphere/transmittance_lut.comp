@@ -27,11 +27,6 @@ stor;
 layout(rgba32f, set = 0, binding = 1) uniform
     restrict writeonly image2D transmittance_lut;
 
-// Segment offset in the range (0, 1) exclusive, to avoid sampling at segment
-// edges. Specific value seems arbitrary, but was taken from example
-// implementations.
-const float OFFSET_SEGMENT_T = 0.3;
-
 // Computes the transmittance through the atmosphere from a starting position,
 // raymarching towards a sun direction. Assumes earth is at origin.
 vec3 raymarch_transmittance(vec3 pos, vec3 sun_dir) {
@@ -49,7 +44,7 @@ vec3 raymarch_transmittance(vec3 pos, vec3 sun_dir) {
     float next_t =
         ((float(i) + OFFSET_SEGMENT_T) / float(pc.raymarch_steps)) * atmo_dist;
     float dt = next_t - t;
-    float t = next_t;
+    t = next_t;
 
     vec3 sample_pos = pos + t * sun_dir;
     float height_km = length(sample_pos) - params.ground_radius_km;

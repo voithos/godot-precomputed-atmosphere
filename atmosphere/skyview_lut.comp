@@ -36,7 +36,24 @@ void main() {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord, texture_size);
-  vec4 color =
-      vec4(texture(transmittance_lut, uv).rgb + vec3(0.5, 0.0, 0.0), 1.0);
+
+  // We treat y=0 as the surface of the ground. If the camera is "underground",
+  // clamp to avoid weird artifacts.
+  vec3 camera_pos_km = pc.camera_position * 1e-3;
+  camera_pos_km.y = max(camera_pos_km.y, 0.0);
+
+  // Get azimuth-altitude angles based on the current UV, and use to generate a
+  // ray to march.
+  AzAlt aa = uv_to_az_alt(uv, camera_pos_km.y, stor.params.ground_radius_km);
+  vec3 ray_dir = vec3(cos(aa.altitude) * sin(aa.azimuth), sin(aa.altitude),
+                      cos(aa.altitude) * cos(aa.azimuth));
+
+  // Convert local camera pos to earth pos.
+  vec3 earth_pos_km =
+      camera_pos_km + vec3(0.0, stor.params.ground_radius_km, 0.0);
+  SkyResult sky =
+      raymarch_sky(earth_pos_km, ray_dir, pc.sun_direction, pc.raymarch_steps,
+                   stor.params, transmittance_lut, ms_lut);
+  vec4 color = vec4(sky.luminance * 20, 1.0);
   imageStore(skyview_lut, texel_coord, color);
 }
