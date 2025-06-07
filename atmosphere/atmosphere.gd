@@ -1,10 +1,11 @@
 class_name Atmosphere
 extends Node3D
 
+# TODO: Make this into a tool so that we can see it working in the editor.
+
 @export var directional_light: DirectionalLight3D
 @export var world_environment: WorldEnvironment
 
-# TODO: Implement these in the sky shader.
 @export_group("Sky")
 @export var sky_luminance_color: Color = Color.WHITE
 @export var sky_luminance_scale: float = 2.0
@@ -17,13 +18,17 @@ extends Node3D
 @export var atmosphere_thickness_km: float = 100.0
 @export var ground_albedo: Color = Color(0.1, 0.1, 0.1)
 
-# Note that we access these variables from the render thread. Normally it'd be better to .bind() specific values to improve thread safety and guarantee a consistent snapshot of values for a given frame,
-# Accessing these variables from the render thread is unsafe, should .bind() it instead
+# Note that we access these variables from the render thread. Normally it'd be better to .bind()
+# specific values to improve thread safety and guarantee a consistent snapshot of values for a given
+# frame, but since these usually don't change over time (unlike camera pos / sun dir), we cheat a
+# bit.
+# Unfortunately, GDScript doesn't support structs, so we'd have to create a Resource type and
+# duplicate it when passing it to the render thread (lest we pass each parameter individually).
 
 # These factors differ a bit from common implementations, see
 # https://forums.flightsimulator.com/t/replace-the-atmosphere-parameters-with-more-accurate-ones-from-arpc/607603
 @export var rayleigh_scattering_factor: Color = Color(0.22456112907, 0.41971499107, 1.0)
-@export var rayleigh_scattering_scale: float = 29.412623e-3 # TODO: why are these all -3 instead of -6
+@export var rayleigh_scattering_scale: float = 29.412623e-3
 @export var mie_scattering_factor: Color = Color(1.0, 1.0, 1.0)
 @export var mie_scattering_scale: float = 3.996e-3
 @export var mie_absorption_factor: Color = Color(1.0, 1.0, 1.0)
