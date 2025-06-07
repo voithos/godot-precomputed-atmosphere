@@ -1,25 +1,37 @@
-[gd_scene load_steps=2 format=3 uid="uid://ve8x6dleo3sr"]
+[gd_scene load_steps=5 format=3 uid="uid://ve8x6dleo3sr"]
 
 [ext_resource type="Script" uid="uid://b3j56yqr0ksp1" path="res://atmosphere/atmosphere.gd" id="1_660kc"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_660kc"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_di1f6"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_n8roe"]
 
 [node name="Atmosphere" type="Node3D"]
 script = ExtResource("1_660kc")
 
 [node name="DebugView" type="Node2D" parent="."]
+visible = false
 
 [node name="Transmittance" type="TextureRect" parent="DebugView"]
-offset_right = 40.0
-offset_bottom = 40.0
+offset_right = 256.0
+offset_bottom = 64.0
+texture = SubResource("Texture2DRD_660kc")
 flip_v = true
 
 [node name="MultipleScattering" type="TextureRect" parent="DebugView"]
 modulate = Color(20, 20, 20, 1)
-offset_right = 40.0
-offset_bottom = 40.0
+offset_left = 257.0
+offset_right = 289.0
+offset_bottom = 32.0
+texture = SubResource("Texture2DRD_di1f6")
 flip_v = true
 
 [node name="SkyView" type="TextureRect" parent="DebugView"]
-modulate = Color(20, 20, 20, 1)
-offset_right = 40.0
-offset_bottom = 40.0
+modulate = Color(5, 5, 5, 1)
+offset_left = 290.0
+offset_right = 490.0
+offset_bottom = 100.0
+texture = SubResource("Texture2DRD_n8roe")
 flip_v = true

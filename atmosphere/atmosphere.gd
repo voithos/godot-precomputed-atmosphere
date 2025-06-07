@@ -1,7 +1,6 @@
+@tool
 class_name Atmosphere
 extends Node3D
-
-# TODO: Make this into a tool so that we can see it working in the editor.
 
 @export var directional_light: DirectionalLight3D
 @export var world_environment: WorldEnvironment
@@ -60,9 +59,9 @@ extends Node3D
 @onready var _transmittance_rect := $DebugView/Transmittance
 @onready var _ms_rect := $DebugView/MultipleScattering
 @onready var _skyview_rect := $DebugView/SkyView
-var _transmittance_debug_texture := Texture2DRD.new()
-var _ms_debug_texture := Texture2DRD.new()
-var _skyview_debug_texture := Texture2DRD.new()
+var _transmittance_texture := Texture2DRD.new()
+var _ms_texture := Texture2DRD.new()
+var _skyview_texture := Texture2DRD.new()
 
 func _ready() -> void:
 	_initialize_debug_rects()
@@ -75,13 +74,13 @@ func _notification(what) -> void:
 func _initialize_debug_rects() -> void:
 	# Reassign to have the setter activate.
 	debug_draw = debug_draw
-	_transmittance_rect.texture = _transmittance_debug_texture
+	_transmittance_rect.texture = _transmittance_texture
 	_transmittance_rect.size = transmittance_lut_size
 	_transmittance_rect.position = Vector2.ZERO
-	_ms_rect.texture = _ms_debug_texture
+	_ms_rect.texture = _ms_texture
 	_ms_rect.size = ms_lut_size
 	_ms_rect.position = Vector2(_transmittance_rect.position.x + _transmittance_rect.size.x + 1, 0)
-	_skyview_rect.texture = _skyview_debug_texture
+	_skyview_rect.texture = _skyview_texture
 	_skyview_rect.size = skyview_lut_size
 	_skyview_rect.position = Vector2(_ms_rect.position.x + _ms_rect.size.x + 1, 0)
 
@@ -104,10 +103,12 @@ func _process(_delta: float) -> void:
 	sky_material.set_shader_parameter("sky_luminance_multiplier", sky_luminance_color * sky_luminance_scale)
 	sky_material.set_shader_parameter("sun_angular_diameter", deg_to_rad(sun_angular_diameter_degrees))
 	sky_material.set_shader_parameter("ground_radius_km", ground_radius_km)
-	sky_material.set_shader_parameter("skyview_lut", _skyview_debug_texture)
+	sky_material.set_shader_parameter("skyview_lut", _skyview_texture)
 
 	# Trigger the render updates.
 	var camera_position := get_viewport().get_camera_3d().global_position
+	if Engine.is_editor_hint():
+		camera_position = EditorInterface.get_editor_viewport_3d(0).get_camera_3d().global_position
 	var sun_direction := directional_light.quaternion * Vector3.BACK
 	RenderingServer.call_on_render_thread(_render_process.bind(camera_position, sun_direction))
 
@@ -247,7 +248,7 @@ func _initialize_compute_resources():
 	transmittance_shader = load_compute_shader("res://atmosphere/transmittance_lut.comp")
 	transmittance_pipeline = create_compute_pipeline(transmittance_shader)
 	transmittance_lut = create_texture_2d(transmittance_lut_size, TEXTURE_FORMAT)
-	_transmittance_debug_texture.texture_rd_rid = transmittance_lut
+	_transmittance_texture.texture_rd_rid = transmittance_lut
 	transmittance_uniform_set = create_uniform_set([
 		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
 		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [transmittance_lut]),
@@ -258,7 +259,7 @@ func _initialize_compute_resources():
 	ms_shader = load_compute_shader("res://atmosphere/ms_lut.comp")
 	ms_pipeline = create_compute_pipeline(ms_shader)
 	ms_lut = create_texture_2d(ms_lut_size, TEXTURE_FORMAT)
-	_ms_debug_texture.texture_rd_rid = ms_lut
+	_ms_texture.texture_rd_rid = ms_lut
 	ms_uniform_set = create_uniform_set([
 		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
 		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ms_lut]),
@@ -269,7 +270,7 @@ func _initialize_compute_resources():
 	skyview_shader = load_compute_shader("res://atmosphere/skyview_lut.comp")
 	skyview_pipeline = create_compute_pipeline(skyview_shader)
 	skyview_lut = create_texture_2d(skyview_lut_size, TEXTURE_FORMAT)
-	_skyview_debug_texture.texture_rd_rid = skyview_lut
+	_skyview_texture.texture_rd_rid = skyview_lut
 	skyview_uniform_set = create_uniform_set([
 		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
 		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [skyview_lut]),

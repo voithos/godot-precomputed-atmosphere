@@ -1,13 +1,16 @@
-[gd_scene load_steps=7 format=3 uid="uid://lfscbmhkvahb"]
+[gd_scene load_steps=8 format=3 uid="uid://lfscbmhkvahb"]
 
 [ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://atmosphere/atmosphere.gdshader" id="1_uheli"]
 [ext_resource type="PackedScene" uid="uid://ve8x6dleo3sr" path="res://atmosphere/atmosphere.tscn" id="2_pjyox"]
 
+[sub_resource type="Texture2DRD" id="Texture2DRD_pjyox"]
+
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
-shader_parameter/sky_luminance_multiplier = Color(0, 0, 0, 1)
-shader_parameter/sun_angular_diameter = 0.0
-shader_parameter/ground_radius_km = 0.0
+shader_parameter/sky_luminance_multiplier = Color(2, 2, 2, 2)
+shader_parameter/sun_angular_diameter = 0.00934973
+shader_parameter/ground_radius_km = 6360.0
+shader_parameter/skyview_lut = SubResource("Texture2DRD_pjyox")
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -24,11 +27,10 @@ glow_bloom = 1.0
 [node name="Example" type="Node3D"]
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 4.732)
-fov = 90.0
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 4.732)
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(-1, -2.26267e-08, 8.44439e-08, 0, 0.965926, 0.258819, -8.74228e-08, 0.258819, -0.965926, 0, 0, 0)
+transform = Transform3D(-1, 2.18889e-08, -8.46382e-08, 0, 0.968148, 0.25038, 8.74228e-08, 0.25038, -0.968148, 0, 0, 0)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_6fnfb")
