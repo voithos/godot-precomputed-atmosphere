@@ -45,8 +45,8 @@ void main() {
   // Get azimuth-altitude angles based on the current UV, and use to generate a
   // ray to march.
   AzAlt aa = uv_to_az_alt(uv, camera_pos_km.y, stor.params.ground_radius_km);
-  vec3 ray_dir = vec3(cos(aa.altitude) * sin(aa.azimuth), sin(aa.altitude),
-                      cos(aa.altitude) * cos(aa.azimuth));
+  vec3 ray_dir = vec3(cos(aa.altitude) * cos(aa.azimuth), sin(aa.altitude),
+                      cos(aa.altitude) * sin(aa.azimuth));
 
   // Convert local camera pos to earth pos.
   vec3 earth_pos_km =
@@ -54,6 +54,6 @@ void main() {
   SkyResult sky =
       raymarch_sky(earth_pos_km, ray_dir, pc.sun_direction, pc.raymarch_steps,
                    stor.params, transmittance_lut, ms_lut);
-  vec4 color = vec4(sky.luminance * 20, 1.0);
+  vec4 color = vec4(sky.luminance, 1.0);
   imageStore(skyview_lut, texel_coord, color);
 }

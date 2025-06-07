@@ -5,6 +5,9 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
+shader_parameter/sky_luminance_multiplier = Color(0, 0, 0, 1)
+shader_parameter/sun_angular_diameter = 0.0
+shader_parameter/ground_radius_km = 0.0
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -12,22 +15,27 @@ sky_material = SubResource("ShaderMaterial_n67py")
 [sub_resource type="Environment" id="Environment_6fnfb"]
 background_mode = 2
 sky = SubResource("Sky_1bk6c")
+ambient_light_source = 3
+reflected_light_source = 2
+glow_bloom = 1.0
 
 [sub_resource type="BoxMesh" id="BoxMesh_pjyox"]
 
 [node name="Example" type="Node3D"]
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.16382, 4.73215)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 4.732)
+fov = 90.0
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0)
+transform = Transform3D(-1, -2.26267e-08, 8.44439e-08, 0, 0.965926, 0.258819, -8.74228e-08, 0.258819, -0.965926, 0, 0, 0)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_6fnfb")
 
-[node name="Atmosphere" parent="." node_paths=PackedStringArray("directional_light") instance=ExtResource("2_pjyox")]
+[node name="Atmosphere" parent="." node_paths=PackedStringArray("directional_light", "world_environment") instance=ExtResource("2_pjyox")]
 directional_light = NodePath("../DirectionalLight3D")
+world_environment = NodePath("../WorldEnvironment")
 debug_draw = true
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]

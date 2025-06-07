@@ -108,7 +108,8 @@ struct AzAlt {
 // relative to texture UVs in order to concentrate more texels near the horizon
 AzAlt uv_to_az_alt(vec2 uv, float height_km, float ground_radius_km) {
   AzAlt aa;
-  // Map [0, 1] to [-PI, PI].
+  // Map [0, 1] to [-PI, PI]. Arbitrary but works as long as we sample via the
+  // same range.
   aa.azimuth = (uv.x - 0.5) * 2.0 * PI;
 
   float linear_v = 2.0 * uv.y - 1.0;
@@ -118,7 +119,7 @@ AzAlt uv_to_az_alt(vec2 uv, float height_km, float ground_radius_km) {
   float horizon_dist =
       sqrt(radius_km * radius_km - ground_radius_km * ground_radius_km);
   float horizon_angle = 0.5 * PI - safe_acos(horizon_dist / radius_km);
-  aa.altitude = linear_v * 0.5 * PI - horizon_angle;
+  aa.altitude = nonlinear_v * 0.5 * PI - horizon_angle;
   return aa;
 }
 

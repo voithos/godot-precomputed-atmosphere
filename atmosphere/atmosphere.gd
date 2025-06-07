@@ -2,11 +2,12 @@ class_name Atmosphere
 extends Node3D
 
 @export var directional_light: DirectionalLight3D
+@export var world_environment: WorldEnvironment
 
 # TODO: Implement these in the sky shader.
 @export_group("Sky")
 @export var sky_luminance_color: Color = Color.WHITE
-@export var sky_luminance_scale: float = 25.0
+@export var sky_luminance_scale: float = 2.0
 ## The angular diameter of the sun, which is roughly half a degree. This precise number was taken
 ## from Bruneton's precomputed scattering implementation.
 @export var sun_angular_diameter_degrees: float = 0.5357
@@ -86,8 +87,23 @@ func _process(_delta: float) -> void:
 	if directional_light == null:
 		push_error("Atmosphere needs a directional light hooked up")
 		return
+	if world_environment == null:
+		push_error("Atmosphere needs a WorldEnvironment hooked up")
+		return
+
+	# Update sky shader parameters.
+	if world_environment.environment.sky.sky_material is not ShaderMaterial:
+		push_error("Sky material must be the atmosphere shader material")
+		return
+	var sky_material: ShaderMaterial = world_environment.environment.sky.sky_material
+	sky_material.set_shader_parameter("sky_luminance_multiplier", sky_luminance_color * sky_luminance_scale)
+	sky_material.set_shader_parameter("sun_angular_diameter", deg_to_rad(sun_angular_diameter_degrees))
+	sky_material.set_shader_parameter("ground_radius_km", ground_radius_km)
+	sky_material.set_shader_parameter("skyview_lut", _skyview_debug_texture)
+
+	# Trigger the render updates.
 	var camera_position := get_viewport().get_camera_3d().global_position
-	var sun_direction := directional_light.quaternion * Vector3.FORWARD
+	var sun_direction := directional_light.quaternion * Vector3.BACK
 	RenderingServer.call_on_render_thread(_render_process.bind(camera_position, sun_direction))
 
 ## Render thread code.

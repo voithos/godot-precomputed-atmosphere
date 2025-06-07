@@ -10,11 +10,16 @@ script = ExtResource("1_660kc")
 [node name="Transmittance" type="TextureRect" parent="DebugView"]
 offset_right = 40.0
 offset_bottom = 40.0
+flip_v = true
 
 [node name="MultipleScattering" type="TextureRect" parent="DebugView"]
+modulate = Color(20, 20, 20, 1)
 offset_right = 40.0
 offset_bottom = 40.0
+flip_v = true
 
 [node name="SkyView" type="TextureRect" parent="DebugView"]
+modulate = Color(20, 20, 20, 1)
 offset_right = 40.0
 offset_bottom = 40.0
+flip_v = true
