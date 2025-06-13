@@ -73,9 +73,10 @@ vec3 sun_disk(vec3 eye_pos, vec3 eye_dir) {
 void sky() {
 	vec3 luminance = vec3(0.0);
 	if (LIGHT0_ENABLED) {
-		// Treat y=0 as the surface of the ground, so clamp position if the camera is "underground".
+		// Treat y=0 as the surface of the ground, so clamp position to a small
+		// number if the camera is "underground".
 		vec3 pos_km = POSITION * 1e-3;
-		pos_km.y = max(pos_km.y, 0);
+		pos_km.y = max(pos_km.y, 0.1);
 		luminance = sample_skyview_lut(pos_km.y, EYEDIR);
 		luminance += sun_disk(pos_km, EYEDIR);
 	}

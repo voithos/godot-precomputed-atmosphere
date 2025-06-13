@@ -38,9 +38,9 @@ void main() {
   vec2 uv = texel_center_uv(texel_coord, texture_size);
 
   // We treat y=0 as the surface of the ground. If the camera is "underground",
-  // clamp to avoid weird artifacts.
+  // clamp to a non-zero small number to avoid weird artifacts.
   vec3 camera_pos_km = pc.camera_position * 1e-3;
-  camera_pos_km.y = max(camera_pos_km.y, 0.0);
+  camera_pos_km.y = max(camera_pos_km.y, 0.1);
 
   // Get azimuth-altitude angles based on the current UV, and use to generate a
   // ray to march.

@@ -18,7 +18,7 @@ func _input(event):
 			rotation.x = clamp(rotation.x - event.relative.y * mouse_sensitivity, deg_to_rad(-90), deg_to_rad(90))
 		elif is_lifting:
 			# Lift logarithmically.
-			position.y += -event.relative.y * mouse_sensitivity * pow(3, log(position.y))
+			position.y += -event.relative.y * mouse_sensitivity * pow(3, log(abs(position.y)))
 		elif is_sunmove:
 			directional_light.rotation.y = wrapf(directional_light.rotation.y - event.relative.x * mouse_sensitivity, 0, PI * 2)
 			directional_light.rotation.x = clamp(directional_light.rotation.x + event.relative.y * mouse_sensitivity, deg_to_rad(-90), deg_to_rad(90))
