@@ -8,8 +8,11 @@ uniform float sun_angular_diameter : hint_range(0, 3.14);
 // The configured ground radius.
 uniform float ground_radius_km;
 
-// The actual skyview LUT!
-uniform sampler2D skyview_lut : hint_default_black;
+// The actual skyview LUT! We disable repeat since the vertical axis maps
+// [0, 1] to [nadir, zenith] respectively. This does mean that repeat is
+// disabled for the horizontal axis as well, which is unfortunate, but the sky
+// is fairly uniform so it's not the worst.
+uniform sampler2D skyview_lut : hint_default_black, repeat_disable;
 
 const float EPSILON = 0.0001;
 
