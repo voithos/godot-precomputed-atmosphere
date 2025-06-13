@@ -1,16 +1,17 @@
-[gd_scene load_steps=8 format=3 uid="uid://lfscbmhkvahb"]
+[gd_scene load_steps=9 format=3 uid="uid://lfscbmhkvahb"]
 
+[ext_resource type="Script" uid="uid://dg6srr66hyv6g" path="res://example/mouse_movement.gd" id="1_8clr1"]
 [ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://atmosphere/atmosphere.gdshader" id="1_uheli"]
 [ext_resource type="PackedScene" uid="uid://ve8x6dleo3sr" path="res://atmosphere/atmosphere.tscn" id="2_pjyox"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_pjyox"]
+[sub_resource type="Texture2DRD" id="Texture2DRD_8clr1"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
 shader_parameter/sky_luminance_multiplier = Color(2, 2, 2, 2)
 shader_parameter/sun_angular_diameter = 0.00934973
 shader_parameter/ground_radius_km = 6360.0
-shader_parameter/skyview_lut = SubResource("Texture2DRD_pjyox")
+shader_parameter/skyview_lut = SubResource("Texture2DRD_8clr1")
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -26,8 +27,10 @@ glow_bloom = 1.0
 
 [node name="Example" type="Node3D"]
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." node_paths=PackedStringArray("directional_light")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 4.732)
+script = ExtResource("1_8clr1")
+directional_light = NodePath("../DirectionalLight3D")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(-1, 2.18889e-08, -8.46382e-08, 0, 0.968148, 0.25038, 8.74228e-08, 0.25038, -0.968148, 0, 0, 0)
