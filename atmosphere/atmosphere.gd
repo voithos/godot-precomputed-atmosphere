@@ -11,6 +11,7 @@ extends Node3D
 ## The angular diameter of the sun, which is roughly half a degree. This precise number was taken
 ## from Bruneton's precomputed scattering implementation.
 @export var sun_angular_diameter_degrees: float = 0.5357
+@export var limb_darkening: bool = true
 
 @export_group("Scattering")
 @export var ground_radius_km: float = 6360.0
@@ -102,8 +103,11 @@ func _process(_delta: float) -> void:
 	var sky_material: ShaderMaterial = world_environment.environment.sky.sky_material
 	sky_material.set_shader_parameter("sky_luminance_multiplier", sky_luminance_color * sky_luminance_scale)
 	sky_material.set_shader_parameter("sun_angular_diameter", deg_to_rad(sun_angular_diameter_degrees))
+	sky_material.set_shader_parameter("limb_darkening", limb_darkening)
 	sky_material.set_shader_parameter("ground_radius_km", ground_radius_km)
+	sky_material.set_shader_parameter("atmosphere_thickness_km", atmosphere_thickness_km)
 	sky_material.set_shader_parameter("skyview_lut", _skyview_texture)
+	sky_material.set_shader_parameter("transmittance_lut", _transmittance_texture)
 
 	# Trigger the render updates.
 	var camera_position := get_viewport().get_camera_3d().global_position

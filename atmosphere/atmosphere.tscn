@@ -10,6 +10,7 @@
 
 [node name="Atmosphere" type="Node3D"]
 script = ExtResource("1_660kc")
+limb_darkening = null
 
 [node name="DebugView" type="Node2D" parent="."]
 visible = false
