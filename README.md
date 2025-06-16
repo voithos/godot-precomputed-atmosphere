@@ -1,5 +1,7 @@
 # Godot Precomputed Atmosphere
 
+![Screenshot](screenshot.png)
+
 https://sebh.github.io/publications/egsr2020.pdf
 
 ## Performance
