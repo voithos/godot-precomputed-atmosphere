@@ -10,7 +10,7 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
-shader_parameter/sky_luminance_multiplier = Color(2.5, 2.5, 2.5, 2.5)
+shader_parameter/sky_luminance_multiplier = Color(2, 2, 2, 2)
 shader_parameter/sun_angular_diameter = 0.0174533
 shader_parameter/limb_darkening = true
 shader_parameter/ground_radius_km = 6360.0
@@ -26,7 +26,7 @@ background_mode = 2
 sky = SubResource("Sky_1bk6c")
 ambient_light_source = 3
 reflected_light_source = 2
-glow_bloom = 1.0
+glow_enabled = true
 
 [sub_resource type="BoxMesh" id="BoxMesh_pjyox"]
 

@@ -11,11 +11,12 @@ uniform float ground_radius_km;
 // The configured atmosphere thickness.
 uniform float atmosphere_thickness_km;
 
-// The actual skyview LUT! We disable repeat since the vertical axis maps
-// [0, 1] to [nadir, zenith] respectively. This does mean that repeat is
-// disabled for the horizontal axis as well, which is unfortunate, but the sky
-// is fairly uniform so it's not the worst.
-uniform sampler2D skyview_lut : hint_default_black, repeat_disable;
+// The actual skyview LUT! We'd ideally like to disable repeat since the vertical axis maps
+// [0, 1] to [nadir, zenith] respectively. Unfortunately, this messes up our UV mapping (which is
+// fixable) and also disables repeat for the horizontal axis (which seems like a Godot limitation).
+// For now we don't disable this, which results in weird sampling at zenith/nadir.
+// TODO: Fix this.
+uniform sampler2D skyview_lut : hint_default_black;
 // The transmittance LUT, used to scatter sun disk color.
 uniform sampler2D transmittance_lut : hint_default_white, repeat_disable;
 
