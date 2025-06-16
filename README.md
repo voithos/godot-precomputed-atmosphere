@@ -7,6 +7,8 @@ based on the paper
 "[A Scalable and Production Ready Sky and Atmosphere Rendering Technique](https://sebh.github.io/publications/egsr2020.pdf)"
 by Sébastien Hillaire.
 
+Currently, this does not implement aerial perspective or proper space views.
+
 ## Performance
 
 I ran a quick, non-comprehensive performance profile using NVIDIA Nsight
