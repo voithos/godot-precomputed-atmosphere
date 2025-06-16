@@ -1,12 +1,13 @@
-[gd_scene load_steps=10 format=3 uid="uid://lfscbmhkvahb"]
+[gd_scene load_steps=11 format=3 uid="uid://lfscbmhkvahb"]
 
 [ext_resource type="Script" uid="uid://dg6srr66hyv6g" path="res://example/mouse_movement.gd" id="1_8clr1"]
 [ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://atmosphere/atmosphere.gdshader" id="1_uheli"]
 [ext_resource type="PackedScene" uid="uid://ve8x6dleo3sr" path="res://atmosphere/atmosphere.tscn" id="2_pjyox"]
-
-[sub_resource type="Texture2DRD" id="Texture2DRD_8clr1"]
+[ext_resource type="PackedScene" uid="uid://db1l7wi0v6f38" path="res://example/terrain/scene.gltf" id="4_7cn0y"]
 
 [sub_resource type="Texture2DRD" id="Texture2DRD_7cn0y"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_scst5"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
@@ -15,8 +16,8 @@ shader_parameter/sun_angular_diameter = 0.0174533
 shader_parameter/limb_darkening = true
 shader_parameter/ground_radius_km = 6360.0
 shader_parameter/atmosphere_thickness_km = 100.0
-shader_parameter/skyview_lut = SubResource("Texture2DRD_8clr1")
-shader_parameter/transmittance_lut = SubResource("Texture2DRD_7cn0y")
+shader_parameter/skyview_lut = SubResource("Texture2DRD_7cn0y")
+shader_parameter/transmittance_lut = SubResource("Texture2DRD_scst5")
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -49,5 +50,8 @@ world_environment = NodePath("../WorldEnvironment")
 sun_angular_diameter_degrees = 1.0
 debug_draw = true
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+[node name="Cube" type="MeshInstance3D" parent="."]
 mesh = SubResource("BoxMesh_pjyox")
+
+[node name="Terrain" parent="." instance=ExtResource("4_7cn0y")]
+transform = Transform3D(100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0)

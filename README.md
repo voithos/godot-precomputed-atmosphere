@@ -22,3 +22,9 @@ In addition, the transmittance and MS LUTs don't need to be re-rendered each
 frame unless the atmospheric parameters change (note, sun direction is not one
 of these!), so disabling those passes if params haven't changed would be an easy
 optimization.
+
+## Attribution
+
+- Debug menu - https://github.com/godot-extended-libraries/godot-debug-menu
+- Terrain mesh -
+  https://sketchfab.com/3d-models/death-valley-terrain-9f57bca156e14cff9e4e316a9ccc3e0d
