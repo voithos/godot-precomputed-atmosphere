@@ -7,7 +7,7 @@ extends Node3D
 
 @export_group("Sky")
 @export var sky_luminance_color: Color = Color.WHITE
-@export var sky_luminance_scale: float = 2.0
+@export var sky_luminance_scale: float = 2.5
 ## The angular diameter of the sun, which is roughly half a degree. This precise number was taken
 ## from Bruneton's precomputed scattering implementation.
 @export var sun_angular_diameter_degrees: float = 0.5357
