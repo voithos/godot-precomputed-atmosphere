@@ -2,7 +2,10 @@
 
 ![Screenshot](screenshot.png)
 
-https://sebh.github.io/publications/egsr2020.pdf
+A compute shader implementation of precomputed atmospheric scattering, largely
+based on the paper
+"[A Scalable and Production Ready Sky and Atmosphere Rendering Technique](https://sebh.github.io/publications/egsr2020.pdf)"
+by Sébastien Hillaire.
 
 ## Performance
 
