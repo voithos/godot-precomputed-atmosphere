@@ -9,6 +9,15 @@ by Sébastien Hillaire.
 
 Currently, this does not implement aerial perspective or proper space views.
 
+## Controls
+
+The example scene provides a few convenience controls:
+
+- WASD - movement
+- Left mouse - rotate
+- Right mouse - elevate / descend camera (nonlinear)
+- Middle mouse - move sun position
+
 ## Performance
 
 I ran a quick, non-comprehensive performance profile using NVIDIA Nsight
