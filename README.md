@@ -9,6 +9,9 @@ by Sébastien Hillaire.
 
 Currently, this does not implement aerial perspective or proper space views.
 
+Built in Godot v4.4.1. Older versions haven't been tested, but at least v4.0 is
+needed since this requires compute shader support.
+
 ### Demo
 
 https://github.com/user-attachments/assets/39cc620a-382b-4b3d-ba41-ed470b11f847
