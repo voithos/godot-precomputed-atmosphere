@@ -11,7 +11,7 @@ Currently, this does not implement aerial perspective or proper space views.
 
 ### Demo
 
-![Demo](screencast.mp4)
+<video src="screencast.mp4" width="500px" controls></video>
 
 ## Controls
 
