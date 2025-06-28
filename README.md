@@ -9,6 +9,10 @@ by Sébastien Hillaire.
 
 Currently, this does not implement aerial perspective or proper space views.
 
+### Demo
+
+https://github.com/voithos/godot-precomputed-atmosphere/raw/refs/heads/main/screencast.mp4
+
 ## Controls
 
 The example scene provides a few convenience controls:
