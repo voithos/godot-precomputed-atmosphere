@@ -11,7 +11,7 @@ Currently, this does not implement aerial perspective or proper space views.
 
 ### Demo
 
-https://github.com/voithos/godot-precomputed-atmosphere/raw/refs/heads/main/screencast.mp4
+![Demo](screencast.mp4)
 
 ## Controls
 
