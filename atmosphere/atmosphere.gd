@@ -201,6 +201,13 @@ class ByteArrayUpdater:
 		pack_float(v.y)
 		pack_float(v.z)
 
+	func pack_mat4(v: Projection) -> void:
+		# mat4's are aligned as vec4's.
+		pack_vec4(v.x)
+		pack_vec4(v.y)
+		pack_vec4(v.z)
+		pack_vec4(v.w)
+
 	func pack_int(v: int) -> void:
 		array.encode_s32(next_byte_offset, v)
 		next_byte_offset += INT_BYTES
@@ -248,7 +255,7 @@ func _initialize_compute_resources():
 	atmosphere_params_byte_array = _create_atmosphere_params_byte_array()
 	atmosphere_params_storage_buffer = create_storage_buffer(atmosphere_params_byte_array)
 
-	# Transmittance LUT shader.
+	# Transmittance LUT.
 	transmittance_shader = load_compute_shader("res://atmosphere/transmittance_lut.comp")
 	transmittance_pipeline = create_compute_pipeline(transmittance_shader)
 	transmittance_lut = create_texture_2d(transmittance_lut_size, TEXTURE_FORMAT)
@@ -259,7 +266,7 @@ func _initialize_compute_resources():
 	], transmittance_shader, 0)
 	transmittance_sampler = create_sampler()
 
-	# MS LUT shader.
+	# MS LUT.
 	ms_shader = load_compute_shader("res://atmosphere/ms_lut.comp")
 	ms_pipeline = create_compute_pipeline(ms_shader)
 	ms_lut = create_texture_2d(ms_lut_size, TEXTURE_FORMAT)
@@ -271,6 +278,7 @@ func _initialize_compute_resources():
 	], ms_shader, 0)
 	ms_sampler = create_sampler()
 
+	# Skyview LUT.
 	skyview_shader = load_compute_shader("res://atmosphere/skyview_lut.comp")
 	skyview_pipeline = create_compute_pipeline(skyview_shader)
 	skyview_lut = create_texture_2d(skyview_lut_size, TEXTURE_FORMAT)
@@ -381,12 +389,18 @@ func create_uniform_set(uniforms: Array[RDUniform], shader: RID, shader_set: int
 	return uniform_set
 
 func create_texture_2d(size: Vector2i, format: RenderingDevice.DataFormat) -> RID:
+	return create_texture(RenderingDevice.TEXTURE_TYPE_2D, Vector3i(size.x, size.y, 1), format)
+
+func create_texture_3d(size: Vector3i, format: RenderingDevice.DataFormat) -> RID:
+	return create_texture(RenderingDevice.TEXTURE_TYPE_3D, size, format)
+
+func create_texture(type: RenderingDevice.TextureType, size: Vector3i, format: RenderingDevice.DataFormat) -> RID:
 	var tf := RDTextureFormat.new()
-	tf.texture_type = RenderingDevice.TEXTURE_TYPE_2D
+	tf.texture_type = type
 	tf.format = format
 	tf.width = size.x
 	tf.height = size.y
-	tf.depth = 1
+	tf.depth = size.z
 	tf.array_layers = 1
 	tf.mipmaps = 1
 	tf.usage_bits = (
