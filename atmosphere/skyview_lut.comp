@@ -1,3 +1,9 @@
+// Renders the skyview LUT, parameterized by UV with U representing
+// azimuth angle, and V representing non-linear altitude. U=0.5 points in the
+// positive-X direction, V=0.5 is parameterized to always be the horizon,
+// regardless of camera height. This is based on the paper 'A Scalable and
+// Production Ready Sky and Atmosphere Rendering Technique' by Sebastien
+// Hillaire. The resulting LUT texels will contain the final sky luminance.
 
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break

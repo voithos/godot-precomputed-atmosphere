@@ -5,6 +5,7 @@ uniform vec3 sky_luminance_multiplier : source_color;
 // Angular size of the sun in radians. We use this instead of LIGHT0_SIZE since
 // the latter also affects shadow softness.
 uniform float sun_angular_diameter : hint_range(0, 3.14);
+// Whether to render limb darkening on the sun disk.
 uniform bool limb_darkening;
 // The configured ground radius.
 uniform float ground_radius_km;
