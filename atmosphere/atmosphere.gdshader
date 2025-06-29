@@ -12,12 +12,10 @@ uniform float ground_radius_km;
 // The configured atmosphere thickness.
 uniform float atmosphere_thickness_km;
 
-// The actual skyview LUT! We'd ideally like to disable repeat since the vertical axis maps
-// [0, 1] to [nadir, zenith] respectively. Unfortunately, this messes up our UV mapping (which is
-// fixable) and also disables repeat for the horizontal axis (which seems like a Godot limitation).
-// For now we don't disable this, which results in weird sampling at zenith/nadir.
-// TODO: Fix this.
-uniform sampler2D skyview_lut : hint_default_black;
+// The actual skyview LUT! We disable repeat since the vertical axis maps [0, 1] to [nadir, zenith]
+// respectively. Unfortunately, this also disables repeat for the horizontal axis (Godot doesn't
+// currently seem to allow disabling only a single axis).
+uniform sampler2D skyview_lut : hint_default_black, repeat_disable;
 // The transmittance LUT, used to scatter sun disk color.
 uniform sampler2D transmittance_lut : hint_default_white, repeat_disable;
 
@@ -37,7 +35,9 @@ vec3 sample_skyview_lut(float height_km, vec3 eye_dir) {
 		float cos_theta = dot(planar_dir, FORWARD);
 		azimuth = atan(sin_theta, cos_theta);
 	}
-	uv.x = (azimuth / (2.0 * PI)) - 0.75;
+	// We manually wrap the azimuth via fract(), since Godot doesn't let us disable texture-repeat
+	// for a single axis, so we've had to disable it for both.
+	uv.x = fract((azimuth / (2.0 * PI)) - 0.75);
 
 	// Determine altitude. We adjust for the horizon angle so that the we always
 	// sample the horizon at uv.y == 0.5.
