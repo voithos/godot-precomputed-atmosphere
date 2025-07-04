@@ -11,6 +11,11 @@ var is_panning: bool = false
 var is_lifting: bool = false
 var is_sunmove: bool = false
 
+## Nonlinear speed multiplier for WASD movement.
+var speed_level := 0
+const MIN_SPEED_LEVEL = 0
+const MAX_SPEED_LEVEL = 10
+
 func _input(event):
 	if event is InputEventMouseMotion:
 		if is_panning:
@@ -23,13 +28,18 @@ func _input(event):
 			directional_light.rotation.y = wrapf(directional_light.rotation.y - event.relative.x * mouse_sensitivity, 0, PI * 2)
 			directional_light.rotation.x = clamp(directional_light.rotation.x + event.relative.y * mouse_sensitivity, deg_to_rad(-90), deg_to_rad(90))
 	elif event is InputEventMouseButton:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE)
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			is_panning = event.pressed
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			is_lifting = event.pressed
-		elif event.button_index == MOUSE_BUTTON_MIDDLE:
-			is_sunmove = event.pressed
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			var level_change := -1 if event.button_index == MOUSE_BUTTON_WHEEL_DOWN else 1
+			speed_level = clamp(speed_level + level_change, MIN_SPEED_LEVEL, MAX_SPEED_LEVEL)
+		else:
+			# Capture mouse for remaining mouse buttons.
+			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE)
+			if event.button_index == MOUSE_BUTTON_LEFT:
+				is_panning = event.pressed
+			elif event.button_index == MOUSE_BUTTON_RIGHT:
+				is_lifting = event.pressed
+			elif event.button_index == MOUSE_BUTTON_MIDDLE:
+				is_sunmove = event.pressed
 
 func _physics_process(delta):
 	var input_dir = Vector3.ZERO
@@ -42,5 +52,6 @@ func _physics_process(delta):
 	if Input.is_key_pressed(KEY_D):
 		input_dir += global_transform.basis.x
 
-	var direction = input_dir.normalized()
-	position += direction * movement_speed * delta
+	var direction := input_dir.normalized()
+	var speed_boost := exp(speed_level / 2.0)
+	position += direction * movement_speed * speed_boost * delta
