@@ -28,6 +28,15 @@ const float MIE_MAX_HEIGHT_KM = 1.2;
 const float OZONE_PEAK_ABSORPTION_HEIGHT_KM = 40.179;
 const float OZONE_ABSORPTION_FALLOFF_KM = 17.83;
 
+struct CameraParams {
+  vec3 position;
+  mat3 basis;
+  mat4 inv_projection;
+
+  // Not really camera related per se, but it's a good place for it.
+  vec3 sun_direction;
+};
+
 // Common atmospheric scattering parameters. These are expected to be loaded
 // from a storage buffer, so the parameter order is intentionally made to
 // minimize padding (std430 alignment, vec4 / 16 bytes).

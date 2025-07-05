@@ -19,21 +19,20 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(push_constant, std430) uniform PushConstants {
   ivec2 texture_size;
   int raymarch_steps;
-  vec3 camera_position;
-  vec3 sun_direction;
 }
 pc;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
   AtmosphereParams params;
-}
-stor;
+};
 
-layout(rgba32f, set = 0, binding = 1) uniform
+layout(set = 0, binding = 1) uniform UniformBlock { CameraParams camera; };
+
+layout(rgba32f, set = 0, binding = 2) uniform
     restrict writeonly image2D skyview_lut;
 
-layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
-layout(set = 0, binding = 3) uniform sampler2D ms_lut;
+layout(set = 0, binding = 3) uniform sampler2D transmittance_lut;
+layout(set = 0, binding = 4) uniform sampler2D ms_lut;
 
 void main() {
   ivec2 texture_size = pc.texture_size;
@@ -46,21 +45,20 @@ void main() {
   // We treat y=0 as the surface of the ground. If the camera is "underground",
   // clamp to a non-zero small number to avoid weird artifacts.
   // TODO: Instead of assuming y=0 as the surface, use the node's position.y.
-  vec3 camera_pos_km = pc.camera_position * 1e-3;
+  vec3 camera_pos_km = camera.position * 1e-3;
   camera_pos_km.y = max(camera_pos_km.y, 0.1);
 
   // Get azimuth-altitude angles based on the current UV, and use to generate a
   // ray to march.
-  AzAlt aa = uv_to_az_alt(uv, camera_pos_km.y, stor.params.ground_radius_km);
+  AzAlt aa = uv_to_az_alt(uv, camera_pos_km.y, params.ground_radius_km);
   vec3 ray_dir = vec3(cos(aa.altitude) * cos(aa.azimuth), sin(aa.altitude),
                       cos(aa.altitude) * sin(aa.azimuth));
 
   // Convert local camera pos to earth pos.
-  vec3 earth_pos_km =
-      camera_pos_km + vec3(0.0, stor.params.ground_radius_km, 0.0);
+  vec3 earth_pos_km = camera_pos_km + vec3(0.0, params.ground_radius_km, 0.0);
   SkyResult sky =
-      raymarch_sky(earth_pos_km, ray_dir, pc.sun_direction, pc.raymarch_steps,
-                   stor.params, transmittance_lut, ms_lut);
+      raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
+                   pc.raymarch_steps, params, transmittance_lut, ms_lut);
   vec4 color = vec4(sky.luminance, 1.0);
   imageStore(skyview_lut, texel_coord, color);
 }

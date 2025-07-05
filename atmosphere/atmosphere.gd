@@ -1,4 +1,4 @@
-@tool
+#@tool
 class_name Atmosphere
 extends Node3D
 
@@ -119,11 +119,14 @@ func _process(_delta: float) -> void:
 	sky_material.set_shader_parameter("transmittance_lut", _transmittance_texture)
 
 	# Trigger the render updates.
-	var camera_position := get_viewport().get_camera_3d().global_position
+	var camera := get_viewport().get_camera_3d()
 	if Engine.is_editor_hint():
-		camera_position = EditorInterface.get_editor_viewport_3d(0).get_camera_3d().global_position
+		camera = EditorInterface.get_editor_viewport_3d(0).get_camera_3d()
+	var camera_transform := camera.global_transform
+	var inv_projection := camera.get_camera_projection().inverse()
 	var sun_direction := directional_light.quaternion * Vector3.BACK
-	RenderingServer.call_on_render_thread(_render_process.bind(camera_position, sun_direction))
+
+	RenderingServer.call_on_render_thread(_render_process.bind(camera_transform, inv_projection, sun_direction))
 
 ## Render thread code.
 ##
@@ -131,7 +134,6 @@ func _process(_delta: float) -> void:
 # Local thread group size.
 const LOCAL_SIZE := Vector2i(8, 8)
 const TEXTURE_FORMAT := RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
-
 
 class Alignment:
 	const FLOAT = 4
@@ -144,15 +146,22 @@ class Alignment:
 	const IVEC3 = INT * 4  # std430 mandates that vec3's are aligned like vec4's.
 	const IVEC4 = INT * 4
 
+	const MAT3 = VEC4 * 3
+	const MAT4 = VEC4 * 4
 
 const FLOAT_BYTES = 4
 const INT_BYTES = 4
+# This size has to match the struct definition of CameraParams, per std140 rules.
+const CAMERA_PARAMS_BYTES = Alignment.VEC3 + Alignment.MAT3 + Alignment.MAT4 + Alignment.VEC3
 # This size has to match the struct definition of AtmosphereParams, per std430 rules.
-const ATMOSPHERE_PARAMS_BYTES = 4 * FLOAT_BYTES + 5 * Alignment.VEC3
+const ATMOSPHERE_PARAMS_BYTES = 4 * Alignment.FLOAT + 5 * Alignment.VEC3
 
 var rd: RenderingDevice
 # Track RIDs for cleanup.
 var rids: Array[RID] = []
+
+var camera_params_byte_array: PackedByteArray = PackedByteArray()
+var camera_params_uniform_buffer: RID
 
 var atmosphere_params_byte_array: PackedByteArray = PackedByteArray()
 var atmosphere_params_storage_buffer: RID
@@ -195,20 +204,29 @@ class Std430Packer:
 	var next_byte_offset := 0
 	# Smallest alignment unit. Also works for ints.
 	var strictest_alignment := Alignment.FLOAT
+	var std430 := true
 
-	func _init(input: PackedByteArray) -> void:
+	func _init(input: PackedByteArray, is_std430: bool = true) -> void:
 		array = input
+		std430 = is_std430
 
 	func pack_float(v: float) -> void:
 		_maybe_expand_byte_array()
 		array.encode_float(next_byte_offset, v)
 		next_byte_offset += FLOAT_BYTES
 
+	func pack_vec2(v: Vector2) -> void:
+		_align_to_byte_offset(Alignment.VEC2)
+		pack_float(v.x)
+		pack_float(v.y)
+		_align_if_std140(Alignment.VEC2)
+
 	func pack_vec3(v: Vector3) -> void:
 		_align_to_byte_offset(Alignment.VEC3)
 		pack_float(v.x)
 		pack_float(v.y)
 		pack_float(v.z)
+		_align_if_std140(Alignment.VEC3)
 
 	func pack_vec4(v: Vector4) -> void:
 		_align_to_byte_offset(Alignment.VEC4)
@@ -216,13 +234,26 @@ class Std430Packer:
 		pack_float(v.y)
 		pack_float(v.z)
 		pack_float(v.w)
+		_align_if_std140(Alignment.VEC4)
 
-	func pack_mat4(v: Projection) -> void:
+	func pack_mat3_basis(v: Basis) -> void:
+		pack_vec3(v.x)
+		pack_vec3(v.y)
+		pack_vec3(v.z)
+
+	func pack_mat4_projection(v: Projection) -> void:
 		# mat4's are aligned as vec4's.
 		pack_vec4(v.x)
 		pack_vec4(v.y)
 		pack_vec4(v.z)
 		pack_vec4(v.w)
+
+	func pack_mat4_transform(v: Transform3D) -> void:
+		# mat4's are aligned as vec4's.
+		pack_vec4(Vector4(v.basis.x.x, v.basis.x.y, v.basis.x.z, 0.0))
+		pack_vec4(Vector4(v.basis.y.x, v.basis.y.y, v.basis.y.z, 0.0))
+		pack_vec4(Vector4(v.basis.z.x, v.basis.z.y, v.basis.z.z, 0.0))
+		pack_vec4(Vector4(v.origin.x, v.origin.y, v.origin.z, 1.0))
 
 	func pack_int(v: int) -> void:
 		_maybe_expand_byte_array()
@@ -233,12 +264,14 @@ class Std430Packer:
 		_align_to_byte_offset(Alignment.IVEC2)
 		pack_int(v.x)
 		pack_int(v.y)
+		_align_if_std140(Alignment.IVEC2)
 
 	func pack_ivec3(v: Vector3i) -> void:
 		_align_to_byte_offset(Alignment.IVEC3)
 		pack_int(v.x)
 		pack_int(v.y)
 		pack_int(v.z)
+		_align_if_std140(Alignment.IVEC3)
 
 	func pack_ivec4(v: Vector4i) -> void:
 		_align_to_byte_offset(Alignment.IVEC4)
@@ -246,6 +279,7 @@ class Std430Packer:
 		pack_int(v.y)
 		pack_int(v.z)
 		pack_int(v.w)
+		_align_if_std140(Alignment.IVEC4)
 
 	# std430 mandates that structs are aligned to their largest member, so this fills the tail in
 	# order to abide by it. Note that this doesn't handle aligning the struct start.
@@ -260,9 +294,22 @@ class Std430Packer:
 			# Float is arbitrary, but a good padding unit.
 			pack_float(0.0)
 
+	func _align_if_std140(alignment: int) -> void:
+		if !std430:
+			# std140 conflates size and alignment, so we always pad.
+			_align_to_byte_offset(alignment)
+
 	func _maybe_expand_byte_array():
 		while array.size() < next_byte_offset + FLOAT_BYTES:
 			array.push_back(0)
+
+func _update_camera_params_byte_array(array: PackedByteArray, camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
+	var updater := Std430Packer.new(array, false)
+	updater.pack_vec3(camera_transform.origin)
+	updater.pack_mat3_basis(camera_transform.basis)
+	updater.pack_mat4_projection(inv_projection)
+	updater.pack_vec3(sun_direction)
+	updater.fill_tail_padding()
 
 func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	# Order of field updates must match the order in the AtmosphereParams GLSL struct.
@@ -278,6 +325,10 @@ func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	updater.pack_vec3(color_to_vec3(ozone_absorption_factor) * ozone_absorption_scale)
 	updater.fill_tail_padding()
 
+func _update_camera_params_uniform_buffer(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
+	_update_camera_params_byte_array(camera_params_byte_array, camera_transform, inv_projection, sun_direction)
+	rd.buffer_update(camera_params_uniform_buffer, 0, camera_params_byte_array.size(), camera_params_byte_array)
+
 func _update_atmosphere_params_storage_buffer() -> void:
 	_update_atmosphere_params_byte_array(atmosphere_params_byte_array)
 	rd.buffer_update(atmosphere_params_storage_buffer, 0, atmosphere_params_byte_array.size(), atmosphere_params_byte_array)
@@ -288,6 +339,9 @@ func _initialize_compute_resources():
 	rd = RenderingServer.get_rendering_device()
 
 	# Shared among the shaders.
+	camera_params_byte_array.resize(CAMERA_PARAMS_BYTES)
+	camera_params_uniform_buffer = create_uniform_buffer(camera_params_byte_array)
+
 	atmosphere_params_byte_array.resize(ATMOSPHERE_PARAMS_BYTES)
 	atmosphere_params_storage_buffer = create_storage_buffer(atmosphere_params_byte_array)
 
@@ -321,9 +375,10 @@ func _initialize_compute_resources():
 	_skyview_texture.texture_rd_rid = skyview_lut
 	skyview_uniform_set = create_uniform_set([
 		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [skyview_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [ms_sampler, ms_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [skyview_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
 	], skyview_shader, 0)
 
 	# AP LUT.
@@ -333,9 +388,10 @@ func _initialize_compute_resources():
 	_ap_texture.texture_rd_rid = ap_lut
 	ap_uniform_set = create_uniform_set([
 		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ap_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [ms_sampler, ms_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [ap_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
 	], ap_shader, 0)
 
 func _encode_transmittance_push_constants() -> PackedByteArray:
@@ -357,31 +413,30 @@ func _encode_ms_push_constants() -> PackedByteArray:
 	updater.fill_tail_padding()
 	return constants
 
-func _encode_skyview_push_constants(camera_position: Vector3, sun_direction: Vector3) -> PackedByteArray:
+func _encode_skyview_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
 	var updater := Std430Packer.new(constants)
 	updater.pack_ivec2(skyview_lut_size)
 	updater.pack_int(skyview_raymarch_steps)
-	updater.pack_vec3(camera_position)
-	updater.pack_vec3(sun_direction)
 	updater.fill_tail_padding()
 	return constants
 
-func _encode_ap_push_constants(camera_position: Vector3, sun_direction: Vector3) -> PackedByteArray:
+func _encode_ap_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
 	var updater := Std430Packer.new(constants)
 	updater.pack_ivec3(ap_lut_size)
 	updater.pack_int(ap_raymarch_steps)
-	updater.pack_vec3(camera_position)
-	updater.pack_vec3(sun_direction)
 	updater.pack_float(max_ap_distance_km)
 	updater.fill_tail_padding()
 	return constants
 
-func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
+func _render_process(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
 	assert(RenderingServer.is_on_render_thread())
+
+	# Update camera params.
+	_update_camera_params_uniform_buffer(camera_transform, inv_projection, sun_direction)
 
 	# Update our params storage buffer with latest param values. As an optimization, this could be
 	# skipped if scattering parameters haven't changed (and both the transmittance and MS LUTs
@@ -405,14 +460,14 @@ func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
 	rd.compute_list_dispatch(compute_list, ms_workgroup_size.x, ms_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, skyview_pipeline)
-	var skyview_push_constants := _encode_skyview_push_constants(camera_position, sun_direction)
+	var skyview_push_constants := _encode_skyview_push_constants()
 	rd.compute_list_set_push_constant(compute_list, skyview_push_constants, skyview_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, skyview_uniform_set, 0)
 	var skyview_workgroup_size := workgroup_size(skyview_lut_size)
 	rd.compute_list_dispatch(compute_list, skyview_workgroup_size.x, skyview_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, ap_pipeline)
-	var ap_push_constants := _encode_ap_push_constants(camera_position, sun_direction)
+	var ap_push_constants := _encode_ap_push_constants()
 	rd.compute_list_set_push_constant(compute_list, ap_push_constants, ap_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, ap_uniform_set, 0)
 	var ap_workgroup_size := workgroup_size_3d(ap_lut_size)
@@ -433,6 +488,11 @@ func create_compute_pipeline(shader: RID) -> RID:
 	var pipeline := rd.compute_pipeline_create(shader)
 	rids.push_back(pipeline)
 	return pipeline
+
+func create_uniform_buffer(array: PackedByteArray) -> RID:
+	var buffer := rd.uniform_buffer_create(array.size(), array)
+	rids.push_back(buffer)
+	return buffer
 
 func create_storage_buffer(array: PackedByteArray) -> RID:
 	var buffer := rd.storage_buffer_create(array.size(), array)
