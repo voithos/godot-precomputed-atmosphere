@@ -13,17 +13,17 @@ extends Node3D
 @export var sun_angular_diameter_degrees: float = 0.5357
 @export var limb_darkening: bool = true
 
+# Note that we access some of these variables from the render thread. Normally it'd be better to
+# .bind() specific values to improve thread safety and guarantee a consistent snapshot of values for
+# a given frame, but since these usually don't change over time (unlike camera pos / sun dir), we
+# cheat a bit.
+# Unfortunately, GDScript doesn't support structs, so we'd have to create a Resource type and
+# duplicate it when passing it to the render thread (lest we pass each parameter individually).
+
 @export_group("Scattering")
 @export var ground_radius_km: float = 6360.0
 @export var atmosphere_thickness_km: float = 100.0
 @export var ground_albedo: Color = Color(0.1, 0.1, 0.1)
-
-# Note that we access these variables from the render thread. Normally it'd be better to .bind()
-# specific values to improve thread safety and guarantee a consistent snapshot of values for a given
-# frame, but since these usually don't change over time (unlike camera pos / sun dir), we cheat a
-# bit.
-# Unfortunately, GDScript doesn't support structs, so we'd have to create a Resource type and
-# duplicate it when passing it to the render thread (lest we pass each parameter individually).
 
 # These factors differ a bit from common implementations, see
 # https://forums.flightsimulator.com/t/replace-the-atmosphere-parameters-with-more-accurate-ones-from-arpc/607603
@@ -38,17 +38,24 @@ extends Node3D
 @export var ozone_absorption_scale: float = 2.29107232e-3
 @export var ms_contribution: float = 1.0
 
+@export_group("Aerial Perspective")
+@export var ap_luminance_color: Color = Color.WHITE
+@export var ap_luminance_scale: float = 2.0
+@export var max_ap_distance_km: float = 50.0
+
 @export_group("Performance")
 # LUT sizes. These are only created once during _ready()
 @export var transmittance_lut_size := Vector2i(256, 64)
 @export var ms_lut_size := Vector2i(32, 32)
 @export var skyview_lut_size := Vector2i(200, 100)
+@export var ap_lut_size := Vector3i(32, 32, 32)
 
 # Raymarch configuration.
 @export var transmittance_raymarch_steps: int = 40
 @export var ms_dir_samples: int = 8
 @export var ms_raymarch_steps: int = 20
 @export var skyview_raymarch_steps: int = 20
+@export var ap_raymarch_steps: int = 20
 
 @export_group("Debug")
 @export var debug_draw: bool:
@@ -63,6 +70,7 @@ extends Node3D
 var _transmittance_texture := Texture2DRD.new()
 var _ms_texture := Texture2DRD.new()
 var _skyview_texture := Texture2DRD.new()
+var _ap_texture := Texture3DRD.new()
 
 func _ready() -> void:
 	_initialize_debug_rects()
@@ -89,6 +97,7 @@ func _cleanup() -> void:
 	RenderingServer.call_on_render_thread(_cleanup_compute_resources)
 
 func _process(_delta: float) -> void:
+	# TODO: Ideally this should happen after the camera has been moved, otherwise we'll get a 1 frame delay.
 	if directional_light == null:
 		push_error("Atmosphere needs a directional light hooked up")
 		return
@@ -127,12 +136,17 @@ const VEC4_BYTES = FLOAT_BYTES * 4
 const VEC3_BYTES = VEC4_BYTES  # std430 mandates that vec3's are aligned like vec4's.
 const INT_BYTES = 4
 const IVEC2_BYTES = INT_BYTES * 2
+const IVEC4_BYTES = INT_BYTES * 4
+const IVEC3_BYTES = IVEC4_BYTES  # std430 mandates that vec3's are aligned like vec4's.
 # This size has to match the struct definition of AtmosphereParams.
 const ATMOSPHERE_PARAMS_BYTES = 4 * FLOAT_BYTES + 5 * VEC3_BYTES
 # These sizes have to match the push constants block definitions.
 const TRANSMITTANCE_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES
 const MS_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES * 2
 const SKYVIEW_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES + VEC3_BYTES * 2
+# TODO: Some of these are bigger than needed, we're treating alignment bytes as if they were
+# storage bytes, which is not correct.
+const AP_PUSH_CONSTANTS_BYTES = 48 #IVEC3_BYTES + INT_BYTES + VEC3_BYTES + VEC3_BYTES + FLOAT_BYTES
 
 var rd: RenderingDevice
 # Track RIDs for cleanup.
@@ -157,6 +171,11 @@ var skyview_shader: RID
 var skyview_pipeline: RID
 var skyview_lut: RID
 var skyview_uniform_set: RID
+
+var ap_shader: RID
+var ap_pipeline: RID
+var ap_lut: RID
+var ap_uniform_set: RID
 
 # Creates an empty packed byte array of the given size, in bytes.
 func _create_packed_byte_array_of_size(size: int) -> PackedByteArray:
@@ -216,6 +235,12 @@ class ByteArrayUpdater:
 		_align_to_byte_offset(IVEC2_BYTES)
 		pack_int(v.x)
 		pack_int(v.y)
+
+	func pack_ivec3(v: Vector3i) -> void:
+		_align_to_byte_offset(IVEC3_BYTES)
+		pack_int(v.x)
+		pack_int(v.y)
+		pack_int(v.z)
 
 	func fill_tail_padding() -> void:
 		while next_byte_offset < array.size():
@@ -290,6 +315,18 @@ func _initialize_compute_resources():
 		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [ms_sampler, ms_lut]),
 	], skyview_shader, 0)
 
+	# AP LUT.
+	ap_shader = load_compute_shader("res://atmosphere/ap_lut.comp")
+	ap_pipeline = create_compute_pipeline(ap_shader)
+	ap_lut = create_texture_3d(ap_lut_size, TEXTURE_FORMAT)
+	_ap_texture.texture_rd_rid = ap_lut
+	ap_uniform_set = create_uniform_set([
+		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ap_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
+		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [ms_sampler, ms_lut]),
+	], ap_shader, 0)
+
 func _encode_transmittance_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := _create_packed_byte_array_of_size(
@@ -323,6 +360,19 @@ func _encode_skyview_push_constants(camera_position: Vector3, sun_direction: Vec
 	updater.fill_tail_padding()
 	return constants
 
+func _encode_ap_push_constants(camera_position: Vector3, sun_direction: Vector3) -> PackedByteArray:
+	# We push these every frame, and they're quite small, so create a new one.
+	var constants := _create_packed_byte_array_of_size(
+		_pad_buffer_size_to_vec4(AP_PUSH_CONSTANTS_BYTES))
+	var updater := ByteArrayUpdater.new(constants)
+	updater.pack_ivec3(ap_lut_size)
+	updater.pack_int(ap_raymarch_steps)
+	updater.pack_vec3(camera_position)
+	updater.pack_vec3(sun_direction)
+	updater.pack_float(max_ap_distance_km)
+	updater.fill_tail_padding()
+	return constants
+
 func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
 	assert(RenderingServer.is_on_render_thread())
 
@@ -353,6 +403,13 @@ func _render_process(camera_position: Vector3, sun_direction: Vector3) -> void:
 	rd.compute_list_bind_uniform_set(compute_list, skyview_uniform_set, 0)
 	var skyview_workgroup_size := workgroup_size(skyview_lut_size)
 	rd.compute_list_dispatch(compute_list, skyview_workgroup_size.x, skyview_workgroup_size.y, 1)
+
+	rd.compute_list_bind_compute_pipeline(compute_list, ap_pipeline)
+	var ap_push_constants := _encode_ap_push_constants(camera_position, sun_direction)
+	rd.compute_list_set_push_constant(compute_list, ap_push_constants, ap_push_constants.size())
+	rd.compute_list_bind_uniform_set(compute_list, ap_uniform_set, 0)
+	var ap_workgroup_size := workgroup_size_3d(ap_lut_size)
+	rd.compute_list_dispatch(compute_list, ap_workgroup_size.x, ap_workgroup_size.y, ap_workgroup_size.z)
 
 	rd.compute_list_end()
 
@@ -427,6 +484,11 @@ func workgroup_size(texture_size: Vector2i) -> Vector2i:
 	# In case texture is not a perfect multiple of LOCAL_SIZE, we compute a slightly larger
 	# workgroup size.
 	return (texture_size - Vector2i(1, 1)) / LOCAL_SIZE + Vector2i(1, 1)
+
+func workgroup_size_3d(texture_size: Vector3i) -> Vector3i:
+	# We assume local size is smaller than a layer of the texture.
+	var size_2d := workgroup_size(Vector2i(texture_size.x, texture_size.y))
+	return Vector3i(size_2d.x, size_2d.y, texture_size.z)
 
 # Loads and compiles a compute shader from the given path.
 func load_compute_shader(file_path: String) -> RID:

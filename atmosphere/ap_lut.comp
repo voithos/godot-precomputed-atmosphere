@@ -1,9 +1,3 @@
-// Renders the skyview LUT, parameterized by UV with U representing
-// azimuth angle, and V representing non-linear altitude. U=0.5 points in the
-// positive-X direction, V=0.5 is parameterized to always be the horizon,
-// regardless of camera height. This is based on the paper 'A Scalable and
-// Production Ready Sky and Atmosphere Rendering Technique' by Sebastien
-// Hillaire. The resulting LUT texels will contain the final sky luminance.
 
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break
@@ -17,43 +11,40 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(push_constant, std430) uniform PushConstants {
-  ivec2 texture_size;
+  ivec3 texture_size;
   int raymarch_steps;
   vec3 camera_position;
   vec3 sun_direction;
+  float max_distance_km;
 }
 pc;
 
+// TODO: These could just be a uniform buffer instead actually.
 layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
   AtmosphereParams params;
 }
 stor;
 
-layout(rgba32f, set = 0, binding = 1) uniform
-    restrict writeonly image2D skyview_lut;
+layout(rgba32f, set = 0, binding = 1) uniform restrict writeonly image3D ap_lut;
 
 layout(set = 0, binding = 2) uniform sampler2D transmittance_lut;
 layout(set = 0, binding = 3) uniform sampler2D ms_lut;
 
 void main() {
-  ivec2 texture_size = pc.texture_size;
-  ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+  ivec3 texture_size = pc.texture_size;
+  ivec3 texel_coord = ivec3(gl_GlobalInvocationID.xyz);
   if (out_of_bounds(texel_coord, texture_size)) {
     return;
   }
-  vec2 uv = texel_center_uv(texel_coord, texture_size);
+  vec2 uv = texel_center_uv(texel_coord.xy, texture_size.xy);
 
   // We treat y=0 as the surface of the ground. If the camera is "underground",
   // clamp to a non-zero small number to avoid weird artifacts.
-  // TODO: Instead of assuming y=0 as the surface, use the node's position.y.
   vec3 camera_pos_km = pc.camera_position * 1e-3;
   camera_pos_km.y = max(camera_pos_km.y, 0.1);
 
-  // Get azimuth-altitude angles based on the current UV, and use to generate a
-  // ray to march.
-  AzAlt aa = uv_to_az_alt(uv, camera_pos_km.y, stor.params.ground_radius_km);
-  vec3 ray_dir = vec3(cos(aa.altitude) * cos(aa.azimuth), sin(aa.altitude),
-                      cos(aa.altitude) * sin(aa.azimuth));
+  // TODO: Create the ray based on camera transforms.
+  vec3 ray_dir = vec3(0.0, 0.0, -1.0);
 
   // Convert local camera pos to earth pos.
   vec3 earth_pos_km =
@@ -62,5 +53,7 @@ void main() {
       raymarch_sky(earth_pos_km, ray_dir, pc.sun_direction, pc.raymarch_steps,
                    stor.params, transmittance_lut, ms_lut);
   vec4 color = vec4(sky.luminance, 1.0);
-  imageStore(skyview_lut, texel_coord, color);
+  // Temp, just to make sure the slices are working.
+  color = vec4(uv, 0.0, 1.0);
+  imageStore(ap_lut, texel_coord, color);
 }

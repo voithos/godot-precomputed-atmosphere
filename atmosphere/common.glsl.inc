@@ -52,6 +52,11 @@ bool out_of_bounds(ivec2 texel_coord, ivec2 texture_size) {
   return (texel_coord.x > texture_size.x) || (texel_coord.y > texture_size.y);
 }
 
+bool out_of_bounds(ivec3 texel_coord, ivec3 texture_size) {
+  return (texel_coord.x > texture_size.x) || (texel_coord.y > texture_size.y) ||
+         (texel_coord.z > texture_size.z);
+}
+
 float safe_acos(const float x) { return acos(clamp(x, -1.0, 1.0)); }
 
 // Converts cosine to sine, based on the identity
