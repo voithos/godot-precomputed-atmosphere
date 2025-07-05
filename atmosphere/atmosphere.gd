@@ -198,8 +198,9 @@ func _create_packed_byte_array_of_size(size: int) -> PackedByteArray:
 func color_to_vec3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-# Updater for byte arrays that abides by std430 alignment rules (mostly).
-class Std430Packer:
+# Packer and updater for byte arrays that abides by std140 or std430 alignment rules (somewhat).
+# Note that this doesn't handle nested structs, nor arrays.
+class BytePacker:
 	var array: PackedByteArray
 	var next_byte_offset := 0
 	# Smallest alignment unit. Also works for ints.
@@ -304,7 +305,7 @@ class Std430Packer:
 			array.push_back(0)
 
 func _update_camera_params_byte_array(array: PackedByteArray, camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
-	var updater := Std430Packer.new(array, false)
+	var updater := BytePacker.new(array, false)
 	updater.pack_vec3(camera_transform.origin)
 	updater.pack_mat3_basis(camera_transform.basis)
 	updater.pack_mat4_projection(inv_projection)
@@ -313,7 +314,7 @@ func _update_camera_params_byte_array(array: PackedByteArray, camera_transform: 
 
 func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	# Order of field updates must match the order in the AtmosphereParams GLSL struct.
-	var updater := Std430Packer.new(array)
+	var updater := BytePacker.new(array)
 	updater.pack_float(ground_radius_km)
 	updater.pack_float(atmosphere_thickness_km)
 	updater.pack_float(mie_g)
@@ -397,7 +398,7 @@ func _initialize_compute_resources():
 func _encode_transmittance_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
-	var updater := Std430Packer.new(constants)
+	var updater := BytePacker.new(constants)
 	updater.pack_ivec2(transmittance_lut_size)
 	updater.pack_int(transmittance_raymarch_steps)
 	updater.fill_tail_padding()
@@ -406,7 +407,7 @@ func _encode_transmittance_push_constants() -> PackedByteArray:
 func _encode_ms_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
-	var updater := Std430Packer.new(constants)
+	var updater := BytePacker.new(constants)
 	updater.pack_ivec2(ms_lut_size)
 	updater.pack_int(ms_dir_samples)
 	updater.pack_int(ms_raymarch_steps)
@@ -416,7 +417,7 @@ func _encode_ms_push_constants() -> PackedByteArray:
 func _encode_skyview_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
-	var updater := Std430Packer.new(constants)
+	var updater := BytePacker.new(constants)
 	updater.pack_ivec2(skyview_lut_size)
 	updater.pack_int(skyview_raymarch_steps)
 	updater.fill_tail_padding()
@@ -425,7 +426,7 @@ func _encode_skyview_push_constants() -> PackedByteArray:
 func _encode_ap_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
 	var constants := PackedByteArray()
-	var updater := Std430Packer.new(constants)
+	var updater := BytePacker.new(constants)
 	updater.pack_ivec3(ap_lut_size)
 	updater.pack_int(ap_raymarch_steps)
 	updater.pack_float(max_ap_distance_km)
