@@ -131,28 +131,30 @@ func _process(_delta: float) -> void:
 # Local thread group size.
 const LOCAL_SIZE := Vector2i(8, 8)
 const TEXTURE_FORMAT := RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
+
+
+class Alignment:
+	const FLOAT = 4
+	const VEC2 = FLOAT * 2
+	const VEC3 = FLOAT * 4  # std430 mandates that vec3's are aligned like vec4's.
+	const VEC4 = FLOAT * 4
+
+	const INT = 4
+	const IVEC2 = INT * 2
+	const IVEC3 = INT * 4  # std430 mandates that vec3's are aligned like vec4's.
+	const IVEC4 = INT * 4
+
+
 const FLOAT_BYTES = 4
-const VEC4_BYTES = FLOAT_BYTES * 4
-const VEC3_BYTES = VEC4_BYTES  # std430 mandates that vec3's are aligned like vec4's.
 const INT_BYTES = 4
-const IVEC2_BYTES = INT_BYTES * 2
-const IVEC4_BYTES = INT_BYTES * 4
-const IVEC3_BYTES = IVEC4_BYTES  # std430 mandates that vec3's are aligned like vec4's.
-# This size has to match the struct definition of AtmosphereParams.
-const ATMOSPHERE_PARAMS_BYTES = 4 * FLOAT_BYTES + 5 * VEC3_BYTES
-# These sizes have to match the push constants block definitions.
-const TRANSMITTANCE_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES
-const MS_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES * 2
-const SKYVIEW_PUSH_CONSTANTS_BYTES = IVEC2_BYTES + INT_BYTES + VEC3_BYTES * 2
-# TODO: Some of these are bigger than needed, we're treating alignment bytes as if they were
-# storage bytes, which is not correct.
-const AP_PUSH_CONSTANTS_BYTES = 48 #IVEC3_BYTES + INT_BYTES + VEC3_BYTES + VEC3_BYTES + FLOAT_BYTES
+# This size has to match the struct definition of AtmosphereParams, per std430 rules.
+const ATMOSPHERE_PARAMS_BYTES = 4 * FLOAT_BYTES + 5 * Alignment.VEC3
 
 var rd: RenderingDevice
 # Track RIDs for cleanup.
 var rids: Array[RID] = []
 
-var atmosphere_params_byte_array: PackedByteArray
+var atmosphere_params_byte_array: PackedByteArray = PackedByteArray()
 var atmosphere_params_storage_buffer: RID
 
 var transmittance_shader: RID
@@ -184,41 +186,36 @@ func _create_packed_byte_array_of_size(size: int) -> PackedByteArray:
 		buffer.push_back(0)
 	return buffer
 
-func _pad_buffer_size_to_vec4(size: int) -> int:
-	var misaligned := size % VEC4_BYTES
-	if misaligned == 0:
-		return size
-	return size + (VEC4_BYTES - misaligned)
-
-func _create_atmosphere_params_byte_array() -> PackedByteArray:
-	return _create_packed_byte_array_of_size(_pad_buffer_size_to_vec4(ATMOSPHERE_PARAMS_BYTES))
-
 func color_to_vec3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-# Updater for byte arrays that abides by std430 alignment rules.
-class ByteArrayUpdater:
+# Updater for byte arrays that abides by std430 alignment rules (mostly).
+class Std430Packer:
 	var array: PackedByteArray
 	var next_byte_offset := 0
+	# Smallest alignment unit. Also works for ints.
+	var strictest_alignment := Alignment.FLOAT
+
 	func _init(input: PackedByteArray) -> void:
 		array = input
 
 	func pack_float(v: float) -> void:
+		_maybe_expand_byte_array()
 		array.encode_float(next_byte_offset, v)
 		next_byte_offset += FLOAT_BYTES
 
+	func pack_vec3(v: Vector3) -> void:
+		_align_to_byte_offset(Alignment.VEC3)
+		pack_float(v.x)
+		pack_float(v.y)
+		pack_float(v.z)
+
 	func pack_vec4(v: Vector4) -> void:
-		_align_to_byte_offset(VEC4_BYTES)
+		_align_to_byte_offset(Alignment.VEC4)
 		pack_float(v.x)
 		pack_float(v.y)
 		pack_float(v.z)
 		pack_float(v.w)
-
-	func pack_vec3(v: Vector3) -> void:
-		_align_to_byte_offset(VEC3_BYTES)
-		pack_float(v.x)
-		pack_float(v.y)
-		pack_float(v.z)
 
 	func pack_mat4(v: Projection) -> void:
 		# mat4's are aligned as vec4's.
@@ -228,34 +225,48 @@ class ByteArrayUpdater:
 		pack_vec4(v.w)
 
 	func pack_int(v: int) -> void:
+		_maybe_expand_byte_array()
 		array.encode_s32(next_byte_offset, v)
 		next_byte_offset += INT_BYTES
 
 	func pack_ivec2(v: Vector2i) -> void:
-		_align_to_byte_offset(IVEC2_BYTES)
+		_align_to_byte_offset(Alignment.IVEC2)
 		pack_int(v.x)
 		pack_int(v.y)
 
 	func pack_ivec3(v: Vector3i) -> void:
-		_align_to_byte_offset(IVEC3_BYTES)
+		_align_to_byte_offset(Alignment.IVEC3)
 		pack_int(v.x)
 		pack_int(v.y)
 		pack_int(v.z)
 
+	func pack_ivec4(v: Vector4i) -> void:
+		_align_to_byte_offset(Alignment.IVEC4)
+		pack_int(v.x)
+		pack_int(v.y)
+		pack_int(v.z)
+		pack_int(v.w)
+
+	# std430 mandates that structs are aligned to their largest member, so this fills the tail in
+	# order to abide by it. Note that this doesn't handle aligning the struct start.
 	func fill_tail_padding() -> void:
-		while next_byte_offset < array.size():
-			pack_float(0.0)
+		# We simply align to the strictest alignment we've seen so far.
+		_align_to_byte_offset(strictest_alignment)
 
 	func _align_to_byte_offset(alignment: int) -> void:
+		# Keep track of the strictest alignment rules we've encountered.
+		strictest_alignment = max(strictest_alignment, alignment)
 		while next_byte_offset % alignment != 0:
 			# Float is arbitrary, but a good padding unit.
 			pack_float(0.0)
 
-func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
-	assert(array.size() >= _pad_buffer_size_to_vec4(ATMOSPHERE_PARAMS_BYTES))
+	func _maybe_expand_byte_array():
+		while array.size() < next_byte_offset + FLOAT_BYTES:
+			array.push_back(0)
 
+func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	# Order of field updates must match the order in the AtmosphereParams GLSL struct.
-	var updater := ByteArrayUpdater.new(array)
+	var updater := Std430Packer.new(array)
 	updater.pack_float(ground_radius_km)
 	updater.pack_float(atmosphere_thickness_km)
 	updater.pack_float(mie_g)
@@ -277,7 +288,7 @@ func _initialize_compute_resources():
 	rd = RenderingServer.get_rendering_device()
 
 	# Shared among the shaders.
-	atmosphere_params_byte_array = _create_atmosphere_params_byte_array()
+	atmosphere_params_byte_array.resize(ATMOSPHERE_PARAMS_BYTES)
 	atmosphere_params_storage_buffer = create_storage_buffer(atmosphere_params_byte_array)
 
 	# Transmittance LUT.
@@ -329,9 +340,8 @@ func _initialize_compute_resources():
 
 func _encode_transmittance_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
-	var constants := _create_packed_byte_array_of_size(
-		_pad_buffer_size_to_vec4(TRANSMITTANCE_PUSH_CONSTANTS_BYTES))
-	var updater := ByteArrayUpdater.new(constants)
+	var constants := PackedByteArray()
+	var updater := Std430Packer.new(constants)
 	updater.pack_ivec2(transmittance_lut_size)
 	updater.pack_int(transmittance_raymarch_steps)
 	updater.fill_tail_padding()
@@ -339,9 +349,8 @@ func _encode_transmittance_push_constants() -> PackedByteArray:
 
 func _encode_ms_push_constants() -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
-	var constants := _create_packed_byte_array_of_size(
-		_pad_buffer_size_to_vec4(MS_PUSH_CONSTANTS_BYTES))
-	var updater := ByteArrayUpdater.new(constants)
+	var constants := PackedByteArray()
+	var updater := Std430Packer.new(constants)
 	updater.pack_ivec2(ms_lut_size)
 	updater.pack_int(ms_dir_samples)
 	updater.pack_int(ms_raymarch_steps)
@@ -350,9 +359,8 @@ func _encode_ms_push_constants() -> PackedByteArray:
 
 func _encode_skyview_push_constants(camera_position: Vector3, sun_direction: Vector3) -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
-	var constants := _create_packed_byte_array_of_size(
-		_pad_buffer_size_to_vec4(SKYVIEW_PUSH_CONSTANTS_BYTES))
-	var updater := ByteArrayUpdater.new(constants)
+	var constants := PackedByteArray()
+	var updater := Std430Packer.new(constants)
 	updater.pack_ivec2(skyview_lut_size)
 	updater.pack_int(skyview_raymarch_steps)
 	updater.pack_vec3(camera_position)
@@ -362,9 +370,8 @@ func _encode_skyview_push_constants(camera_position: Vector3, sun_direction: Vec
 
 func _encode_ap_push_constants(camera_position: Vector3, sun_direction: Vector3) -> PackedByteArray:
 	# We push these every frame, and they're quite small, so create a new one.
-	var constants := _create_packed_byte_array_of_size(
-		_pad_buffer_size_to_vec4(AP_PUSH_CONSTANTS_BYTES))
-	var updater := ByteArrayUpdater.new(constants)
+	var constants := PackedByteArray()
+	var updater := Std430Packer.new(constants)
 	updater.pack_ivec3(ap_lut_size)
 	updater.pack_int(ap_raymarch_steps)
 	updater.pack_vec3(camera_position)
