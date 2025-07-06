@@ -7,6 +7,9 @@ precision highp float;
 
 const float PI = 3.1415926535897932384626433832795;
 
+// Default max distance, much larger than the Earth.
+const float MAX_RAYMARCH_DIST_KM = 1e9;
+
 float saturate(float v) { return clamp(v, 0.0, 1.0); }
 
 // Define up vector to align with Godot's +Y convention.
@@ -64,6 +67,18 @@ bool out_of_bounds(ivec2 texel_coord, ivec2 texture_size) {
 bool out_of_bounds(ivec3 texel_coord, ivec3 texture_size) {
   return (texel_coord.x > texture_size.x) || (texel_coord.y > texture_size.y) ||
          (texel_coord.z > texture_size.z);
+}
+
+vec3 screen_uv_to_view_dir(vec2 uv, CameraParams camera) {
+  vec3 ndc = vec3(uv * 2.0 - 1.0, 1);
+  vec4 view = camera.inv_projection * vec4(ndc, 1.0);
+  // Don't need to divide by w since it's normalized.
+  return normalize(view.xyz);
+}
+
+vec3 screen_uv_to_world_dir(vec2 uv, CameraParams camera) {
+  vec3 view_dir = screen_uv_to_view_dir(uv, camera);
+  return camera.basis * view_dir;
 }
 
 float safe_acos(const float x) { return acos(clamp(x, -1.0, 1.0)); }
@@ -227,8 +242,8 @@ struct SkyResult {
 // Raymarch sky luminance from a starting position and ray dir, based on
 // precomputed transmittance and multiple-scattering LUTs.
 SkyResult raymarch_sky(vec3 pos, vec3 ray_dir, vec3 sun_dir, int raymarch_steps,
-                       AtmosphereParams params, sampler2D transmittance_lut,
-                       sampler2D ms_lut) {
+                       float max_dist_km, AtmosphereParams params,
+                       sampler2D transmittance_lut, sampler2D ms_lut) {
   SkyResult sky;
   sky.luminance = vec3(0.0);
   sky.transmittance = vec3(1.0);
@@ -246,6 +261,12 @@ SkyResult raymarch_sky(vec3 pos, vec3 ray_dir, vec3 sun_dir, int raymarch_steps,
       sphere_intersect_dist(pos, ray_dir, params.ground_radius_km);
   if (ground_dist > 0.0) {
     to_dist = ground_dist;
+  }
+
+  to_dist = min(to_dist, max_dist_km);
+  if (to_dist < from_dist) {
+    // Nothing to do since the atmosphere starts past the max dist allowed.
+    return sky;
   }
 
   // Start marching!

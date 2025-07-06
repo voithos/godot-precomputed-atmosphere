@@ -56,9 +56,9 @@ void main() {
 
   // Convert local camera pos to earth pos.
   vec3 earth_pos_km = camera_pos_km + vec3(0.0, params.ground_radius_km, 0.0);
-  SkyResult sky =
-      raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
-                   pc.raymarch_steps, params, transmittance_lut, ms_lut);
+  SkyResult sky = raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
+                               pc.raymarch_steps, MAX_RAYMARCH_DIST_KM, params,
+                               transmittance_lut, ms_lut);
   vec4 color = vec4(sky.luminance, 1.0);
   imageStore(skyview_lut, texel_coord, color);
 }

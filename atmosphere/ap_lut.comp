@@ -29,6 +29,11 @@ layout(rgba32f, set = 0, binding = 2) uniform restrict writeonly image3D ap_lut;
 layout(set = 0, binding = 3) uniform sampler2D transmittance_lut;
 layout(set = 0, binding = 4) uniform sampler2D ms_lut;
 
+// Instead of determining max-distance based on the texture layer directly
+// (invocation ID), we use an offset. That way at layer=0 we'd still get a
+// useful max-dist rather than just getting 0.
+const float OFFSET_LAYER = 0.5;
+
 void main() {
   ivec3 texture_size = pc.texture_size;
   ivec3 texel_coord = ivec3(gl_GlobalInvocationID.xyz);
@@ -42,16 +47,20 @@ void main() {
   vec3 camera_pos_km = camera.position * 1e-3;
   camera_pos_km.y = max(camera_pos_km.y, 0.1);
 
-  // TODO: Create the ray based on camera transforms.
-  vec3 ray_dir = vec3(0.0, 0.0, -1.0);
-
   // Convert local camera pos to earth pos.
   vec3 earth_pos_km = camera_pos_km + vec3(0.0, params.ground_radius_km, 0.0);
-  SkyResult sky =
-      raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
-                   pc.raymarch_steps, params, transmittance_lut, ms_lut);
+  vec3 ray_dir = screen_uv_to_world_dir(uv, camera);
+
+  float dist_factor =
+      (float(texel_coord.z) + OFFSET_LAYER) / float(texture_size.z);
+  // Use a squared distribution so that more of the layers are closer to the
+  // camera, where all the detail matters.
+  dist_factor *= dist_factor;
+  float max_dist = dist_factor * pc.max_distance_km;
+
+  SkyResult sky = raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
+                               pc.raymarch_steps, max_dist, params,
+                               transmittance_lut, ms_lut);
   vec4 color = vec4(sky.luminance, 1.0);
-  // Temp, just to make sure the slices are working.
-  color = vec4(uv, 0.0, 1.0);
   imageStore(ap_lut, texel_coord, color);
 }
