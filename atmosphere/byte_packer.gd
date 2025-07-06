@@ -107,7 +107,7 @@ func pack_ivec4(v: Vector4i) -> void:
 # order to abide by it. Note that this doesn't handle aligning the struct start.
 func fill_tail_padding() -> void:
 	# We simply align to the strictest alignment we've seen so far.
-	_align_to_byte_offset(strictest_alignment)
+	_align_to_byte_offset(16)
 
 func _align_to_byte_offset(alignment: int) -> void:
 	# Keep track of the strictest alignment rules we've encountered.

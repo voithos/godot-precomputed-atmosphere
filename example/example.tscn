@@ -1,13 +1,14 @@
-[gd_scene load_steps=11 format=3 uid="uid://lfscbmhkvahb"]
+[gd_scene load_steps=14 format=3 uid="uid://lfscbmhkvahb"]
 
 [ext_resource type="Script" uid="uid://dg6srr66hyv6g" path="res://example/mouse_movement.gd" id="1_8clr1"]
 [ext_resource type="Shader" uid="uid://1k5u1ca3papi" path="res://atmosphere/atmosphere.gdshader" id="1_uheli"]
 [ext_resource type="PackedScene" uid="uid://ve8x6dleo3sr" path="res://atmosphere/atmosphere.tscn" id="2_pjyox"]
+[ext_resource type="Script" uid="uid://ceoc11pqv0ur5" path="res://atmosphere/aerial_perspective.gd" id="3_scst5"]
 [ext_resource type="PackedScene" uid="uid://db1l7wi0v6f38" path="res://example/terrain/scene.gltf" id="4_7cn0y"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_7cn0y"]
+[sub_resource type="Texture2DRD" id="Texture2DRD_wmyp6"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_scst5"]
+[sub_resource type="Texture2DRD" id="Texture2DRD_6rqat"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
@@ -16,8 +17,8 @@ shader_parameter/sun_angular_diameter = 0.0174533
 shader_parameter/limb_darkening = true
 shader_parameter/ground_radius_km = 6360.0
 shader_parameter/atmosphere_thickness_km = 100.0
-shader_parameter/skyview_lut = SubResource("Texture2DRD_7cn0y")
-shader_parameter/transmittance_lut = SubResource("Texture2DRD_scst5")
+shader_parameter/skyview_lut = SubResource("Texture2DRD_wmyp6")
+shader_parameter/transmittance_lut = SubResource("Texture2DRD_6rqat")
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -28,6 +29,19 @@ sky = SubResource("Sky_1bk6c")
 ambient_light_source = 3
 reflected_light_source = 2
 glow_enabled = true
+
+[sub_resource type="CompositorEffect" id="CompositorEffect_2xiy6"]
+resource_local_to_scene = false
+resource_name = ""
+enabled = true
+effect_callback_type = 4
+needs_motion_vectors = false
+needs_normal_roughness = false
+script = ExtResource("3_scst5")
+metadata/_custom_type_script = "uid://ceoc11pqv0ur5"
+
+[sub_resource type="Compositor" id="Compositor_h7cfd"]
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_2xiy6")])
 
 [sub_resource type="BoxMesh" id="BoxMesh_pjyox"]
 
@@ -43,6 +57,7 @@ transform = Transform3D(-1, 2.18889e-08, -8.46382e-08, 0, 0.968148, 0.25038, 8.7
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_6fnfb")
+compositor = SubResource("Compositor_h7cfd")
 
 [node name="Atmosphere" parent="." node_paths=PackedStringArray("directional_light", "world_environment") instance=ExtResource("2_pjyox")]
 directional_light = NodePath("../DirectionalLight3D")

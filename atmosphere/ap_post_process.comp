@@ -1,0 +1,38 @@
+// NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
+// add Godot's #[compute] hint to the top of the file (which would break
+// shader_compile_spirv_from_source).
+#version 450
+
+#pragma include "res://atmosphere/common.glsl.inc"
+
+// Perform work in 8x8 == 64 local threads. For reference, NVIDIA warps are 32,
+// AMD GPUs use 64.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant, std430) uniform PushConstants { ivec2 texture_size; }
+pc;
+
+layout(rgba16f, set = 0, binding = 0) uniform image2D color_image;
+layout(set = 0, binding = 1) uniform sampler2D depth_texture;
+
+void main() {
+  ivec2 texture_size = pc.texture_size;
+  ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+  if (out_of_bounds(texel_coord, texture_size)) {
+    return;
+  }
+  vec2 uv = texel_center_uv(texel_coord, texture_size);
+
+  vec4 color = imageLoad(color_image, texel_coord);
+
+  // Temp grayscale for funsies.
+  float gray = color.r * 0.2125 + color.g * 0.7154 + color.b * 0.0721;
+  color.rgb = vec3(gray);
+
+  // More temporary shenanigans for testing.
+  if (uv.x > 0.5) {
+    color = texture(depth_texture, uv) * 10.0;
+  }
+
+  imageStore(color_image, texel_coord, color);
+}

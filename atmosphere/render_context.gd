@@ -80,10 +80,10 @@ func create_texture(type: RenderingDevice.TextureType, size: Vector3i, format: R
 	rids.push_back(texture)
 	return texture
 
-func create_sampler() -> RID:
+func create_sampler(min_filter := RenderingDevice.SAMPLER_FILTER_LINEAR, mag_filter := RenderingDevice.SAMPLER_FILTER_LINEAR) -> RID:
 	var ss := RDSamplerState.new()
-	ss.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
-	ss.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
+	ss.min_filter = min_filter
+	ss.mag_filter = mag_filter
 	var sampler := rd.sampler_create(ss)
 	rids.push_back(sampler)
 	return sampler
