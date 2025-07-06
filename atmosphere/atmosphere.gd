@@ -72,13 +72,16 @@ var _ms_texture := Texture2DRD.new()
 var _skyview_texture := Texture2DRD.new()
 var _ap_texture := Texture3DRD.new()
 
+var rctx: RenderContext
+
 func _ready() -> void:
 	_initialize_debug_rects()
 	RenderingServer.call_on_render_thread(_initialize_compute_resources)
 
 func _notification(what) -> void:
 	if what == NOTIFICATION_PREDELETE:
-		_cleanup()
+		if rctx != null:
+			rctx.free()
 
 func _initialize_debug_rects() -> void:
 	# Reassign to have the setter activate.
@@ -92,9 +95,6 @@ func _initialize_debug_rects() -> void:
 	_skyview_rect.texture = _skyview_texture
 	_skyview_rect.size = skyview_lut_size
 	_skyview_rect.position = Vector2(_ms_rect.position.x + _ms_rect.size.x + 1, 0)
-
-func _cleanup() -> void:
-	RenderingServer.call_on_render_thread(_cleanup_compute_resources)
 
 func _process(_delta: float) -> void:
 	# TODO: Ideally this should happen after the camera has been moved, otherwise we'll get a 1 frame delay.
@@ -132,33 +132,14 @@ func _process(_delta: float) -> void:
 ##
 
 # Local thread group size.
-const LOCAL_SIZE := Vector2i(8, 8)
 const TEXTURE_FORMAT := RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 
-class Alignment:
-	const FLOAT = 4
-	const VEC2 = FLOAT * 2
-	const VEC3 = FLOAT * 4  # std430 mandates that vec3's are aligned like vec4's.
-	const VEC4 = FLOAT * 4
-
-	const INT = 4
-	const IVEC2 = INT * 2
-	const IVEC3 = INT * 4  # std430 mandates that vec3's are aligned like vec4's.
-	const IVEC4 = INT * 4
-
-	const MAT3 = VEC4 * 3
-	const MAT4 = VEC4 * 4
-
-const FLOAT_BYTES = 4
-const INT_BYTES = 4
 # This size has to match the struct definition of CameraParams, per std140 rules.
-const CAMERA_PARAMS_BYTES = Alignment.VEC3 + Alignment.MAT3 + Alignment.MAT4 + Alignment.VEC3
+const CAMERA_PARAMS_BYTES = BytePacker.Alignment.VEC3 + BytePacker.Alignment.MAT3 + BytePacker.Alignment.MAT4 + BytePacker.Alignment.VEC3
 # This size has to match the struct definition of AtmosphereParams, per std430 rules.
-const ATMOSPHERE_PARAMS_BYTES = 4 * Alignment.FLOAT + 5 * Alignment.VEC3
+const ATMOSPHERE_PARAMS_BYTES = 4 * BytePacker.Alignment.FLOAT + 5 * BytePacker.Alignment.VEC3
 
 var rd: RenderingDevice
-# Track RIDs for cleanup.
-var rids: Array[RID] = []
 
 var camera_params_byte_array: PackedByteArray = PackedByteArray()
 var camera_params_uniform_buffer: RID
@@ -188,122 +169,6 @@ var ap_pipeline: RID
 var ap_lut: RID
 var ap_uniform_set: RID
 
-# Creates an empty packed byte array of the given size, in bytes.
-func _create_packed_byte_array_of_size(size: int) -> PackedByteArray:
-	var buffer := PackedByteArray()
-	for i in range(size):
-		buffer.push_back(0)
-	return buffer
-
-func color_to_vec3(c: Color) -> Vector3:
-	return Vector3(c.r, c.g, c.b)
-
-# Packer and updater for byte arrays that abides by std140 or std430 alignment rules (somewhat).
-# Note that this doesn't handle nested structs, nor arrays.
-class BytePacker:
-	var array: PackedByteArray
-	var next_byte_offset := 0
-	# Smallest alignment unit. Also works for ints.
-	var strictest_alignment := Alignment.FLOAT
-	var std430 := true
-
-	func _init(input: PackedByteArray, is_std430: bool = true) -> void:
-		array = input
-		std430 = is_std430
-
-	func pack_float(v: float) -> void:
-		_maybe_expand_byte_array()
-		array.encode_float(next_byte_offset, v)
-		next_byte_offset += FLOAT_BYTES
-
-	func pack_vec2(v: Vector2) -> void:
-		_align_to_byte_offset(Alignment.VEC2)
-		pack_float(v.x)
-		pack_float(v.y)
-		_align_if_std140(Alignment.VEC2)
-
-	func pack_vec3(v: Vector3) -> void:
-		_align_to_byte_offset(Alignment.VEC3)
-		pack_float(v.x)
-		pack_float(v.y)
-		pack_float(v.z)
-		_align_if_std140(Alignment.VEC3)
-
-	func pack_vec4(v: Vector4) -> void:
-		_align_to_byte_offset(Alignment.VEC4)
-		pack_float(v.x)
-		pack_float(v.y)
-		pack_float(v.z)
-		pack_float(v.w)
-		_align_if_std140(Alignment.VEC4)
-
-	func pack_mat3_basis(v: Basis) -> void:
-		pack_vec3(v.x)
-		pack_vec3(v.y)
-		pack_vec3(v.z)
-
-	func pack_mat4_projection(v: Projection) -> void:
-		# mat4's are aligned as vec4's.
-		pack_vec4(v.x)
-		pack_vec4(v.y)
-		pack_vec4(v.z)
-		pack_vec4(v.w)
-
-	func pack_mat4_transform(v: Transform3D) -> void:
-		# mat4's are aligned as vec4's.
-		pack_vec4(Vector4(v.basis.x.x, v.basis.x.y, v.basis.x.z, 0.0))
-		pack_vec4(Vector4(v.basis.y.x, v.basis.y.y, v.basis.y.z, 0.0))
-		pack_vec4(Vector4(v.basis.z.x, v.basis.z.y, v.basis.z.z, 0.0))
-		pack_vec4(Vector4(v.origin.x, v.origin.y, v.origin.z, 1.0))
-
-	func pack_int(v: int) -> void:
-		_maybe_expand_byte_array()
-		array.encode_s32(next_byte_offset, v)
-		next_byte_offset += INT_BYTES
-
-	func pack_ivec2(v: Vector2i) -> void:
-		_align_to_byte_offset(Alignment.IVEC2)
-		pack_int(v.x)
-		pack_int(v.y)
-		_align_if_std140(Alignment.IVEC2)
-
-	func pack_ivec3(v: Vector3i) -> void:
-		_align_to_byte_offset(Alignment.IVEC3)
-		pack_int(v.x)
-		pack_int(v.y)
-		pack_int(v.z)
-		_align_if_std140(Alignment.IVEC3)
-
-	func pack_ivec4(v: Vector4i) -> void:
-		_align_to_byte_offset(Alignment.IVEC4)
-		pack_int(v.x)
-		pack_int(v.y)
-		pack_int(v.z)
-		pack_int(v.w)
-		_align_if_std140(Alignment.IVEC4)
-
-	# std430 mandates that structs are aligned to their largest member, so this fills the tail in
-	# order to abide by it. Note that this doesn't handle aligning the struct start.
-	func fill_tail_padding() -> void:
-		# We simply align to the strictest alignment we've seen so far.
-		_align_to_byte_offset(strictest_alignment)
-
-	func _align_to_byte_offset(alignment: int) -> void:
-		# Keep track of the strictest alignment rules we've encountered.
-		strictest_alignment = max(strictest_alignment, alignment)
-		while next_byte_offset % alignment != 0:
-			# Float is arbitrary, but a good padding unit.
-			pack_float(0.0)
-
-	func _align_if_std140(alignment: int) -> void:
-		if !std430:
-			# std140 conflates size and alignment, so we always pad.
-			_align_to_byte_offset(alignment)
-
-	func _maybe_expand_byte_array():
-		while array.size() < next_byte_offset + FLOAT_BYTES:
-			array.push_back(0)
-
 func _update_camera_params_byte_array(array: PackedByteArray, camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
 	var updater := BytePacker.new(array, false)
 	updater.pack_vec3(camera_transform.origin)
@@ -319,11 +184,11 @@ func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	updater.pack_float(atmosphere_thickness_km)
 	updater.pack_float(mie_g)
 	updater.pack_float(ms_contribution)
-	updater.pack_vec3(color_to_vec3(ground_albedo))
-	updater.pack_vec3(color_to_vec3(rayleigh_scattering_factor) * rayleigh_scattering_scale)
-	updater.pack_vec3(color_to_vec3(mie_scattering_factor) * mie_scattering_scale)
-	updater.pack_vec3(color_to_vec3(mie_absorption_factor) * mie_absorption_scale)
-	updater.pack_vec3(color_to_vec3(ozone_absorption_factor) * ozone_absorption_scale)
+	updater.pack_vec3(BytePacker.color_to_vec3(ground_albedo))
+	updater.pack_vec3(BytePacker.color_to_vec3(rayleigh_scattering_factor) * rayleigh_scattering_scale)
+	updater.pack_vec3(BytePacker.color_to_vec3(mie_scattering_factor) * mie_scattering_scale)
+	updater.pack_vec3(BytePacker.color_to_vec3(mie_absorption_factor) * mie_absorption_scale)
+	updater.pack_vec3(BytePacker.color_to_vec3(ozone_absorption_factor) * ozone_absorption_scale)
 	updater.fill_tail_padding()
 
 func _update_camera_params_uniform_buffer(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
@@ -338,61 +203,62 @@ func _initialize_compute_resources():
 	assert(RenderingServer.is_on_render_thread())
 	# Use main rendering device, since the atmosphere is part of normal frame rendering.
 	rd = RenderingServer.get_rendering_device()
+	rctx = RenderContext.new(rd)
 
 	# Shared among the shaders.
 	camera_params_byte_array.resize(CAMERA_PARAMS_BYTES)
-	camera_params_uniform_buffer = create_uniform_buffer(camera_params_byte_array)
+	camera_params_uniform_buffer = rctx.create_uniform_buffer(camera_params_byte_array)
 
 	atmosphere_params_byte_array.resize(ATMOSPHERE_PARAMS_BYTES)
-	atmosphere_params_storage_buffer = create_storage_buffer(atmosphere_params_byte_array)
+	atmosphere_params_storage_buffer = rctx.create_storage_buffer(atmosphere_params_byte_array)
 
 	# Transmittance LUT.
-	transmittance_shader = load_compute_shader("res://atmosphere/transmittance_lut.comp")
-	transmittance_pipeline = create_compute_pipeline(transmittance_shader)
-	transmittance_lut = create_texture_2d(transmittance_lut_size, TEXTURE_FORMAT)
+	transmittance_shader = rctx.load_compute_shader("res://atmosphere/transmittance_lut.comp")
+	transmittance_pipeline = rctx.create_compute_pipeline(transmittance_shader)
+	transmittance_lut = rctx.create_texture_2d(transmittance_lut_size, TEXTURE_FORMAT)
 	_transmittance_texture.texture_rd_rid = transmittance_lut
-	transmittance_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [transmittance_lut]),
+	transmittance_uniform_set = rctx.create_uniform_set([
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [transmittance_lut]),
 	], transmittance_shader, 0)
-	transmittance_sampler = create_sampler()
+	transmittance_sampler = rctx.create_sampler()
 
 	# MS LUT.
-	ms_shader = load_compute_shader("res://atmosphere/ms_lut.comp")
-	ms_pipeline = create_compute_pipeline(ms_shader)
-	ms_lut = create_texture_2d(ms_lut_size, TEXTURE_FORMAT)
+	ms_shader = rctx.load_compute_shader("res://atmosphere/ms_lut.comp")
+	ms_pipeline = rctx.create_compute_pipeline(ms_shader)
+	ms_lut = rctx.create_texture_2d(ms_lut_size, TEXTURE_FORMAT)
 	_ms_texture.texture_rd_rid = ms_lut
-	ms_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ms_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
+	ms_uniform_set = rctx.create_uniform_set([
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 1, [ms_lut]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [transmittance_sampler, transmittance_lut]),
 	], ms_shader, 0)
-	ms_sampler = create_sampler()
+	ms_sampler = rctx.create_sampler()
 
 	# Skyview LUT.
-	skyview_shader = load_compute_shader("res://atmosphere/skyview_lut.comp")
-	skyview_pipeline = create_compute_pipeline(skyview_shader)
-	skyview_lut = create_texture_2d(skyview_lut_size, TEXTURE_FORMAT)
+	skyview_shader = rctx.load_compute_shader("res://atmosphere/skyview_lut.comp")
+	skyview_pipeline = rctx.create_compute_pipeline(skyview_shader)
+	skyview_lut = rctx.create_texture_2d(skyview_lut_size, TEXTURE_FORMAT)
 	_skyview_texture.texture_rd_rid = skyview_lut
-	skyview_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [skyview_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
+	skyview_uniform_set = rctx.create_uniform_set([
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [skyview_lut]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
 	], skyview_shader, 0)
 
 	# AP LUT.
-	ap_shader = load_compute_shader("res://atmosphere/ap_lut.comp")
-	ap_pipeline = create_compute_pipeline(ap_shader)
-	ap_lut = create_texture_3d(ap_lut_size, TEXTURE_FORMAT)
+	ap_shader = rctx.load_compute_shader("res://atmosphere/ap_lut.comp")
+	ap_pipeline = rctx.create_compute_pipeline(ap_shader)
+	ap_lut = rctx.create_texture_3d(ap_lut_size, TEXTURE_FORMAT)
 	_ap_texture.texture_rd_rid = ap_lut
-	ap_uniform_set = create_uniform_set([
-		uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
-		uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [ap_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
-		uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
+	ap_uniform_set = rctx.create_uniform_set([
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [ap_lut]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
 	], ap_shader, 0)
 
 func _encode_transmittance_push_constants() -> PackedByteArray:
@@ -450,162 +316,31 @@ func _render_process(camera_transform: Transform3D, inv_projection: Projection, 
 	var transmittance_push_constants := _encode_transmittance_push_constants()
 	rd.compute_list_set_push_constant(compute_list, transmittance_push_constants, transmittance_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, transmittance_uniform_set, 0)
-	var transmittance_workgroup_size := workgroup_size(transmittance_lut_size)
+	var transmittance_workgroup_size := RenderContext.workgroup_size_2d(transmittance_lut_size)
 	rd.compute_list_dispatch(compute_list, transmittance_workgroup_size.x, transmittance_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, ms_pipeline)
 	var ms_push_constants := _encode_ms_push_constants()
 	rd.compute_list_set_push_constant(compute_list, ms_push_constants, ms_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, ms_uniform_set, 0)
-	var ms_workgroup_size := workgroup_size(ms_lut_size)
+	var ms_workgroup_size := RenderContext.workgroup_size_2d(ms_lut_size)
 	rd.compute_list_dispatch(compute_list, ms_workgroup_size.x, ms_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, skyview_pipeline)
 	var skyview_push_constants := _encode_skyview_push_constants()
 	rd.compute_list_set_push_constant(compute_list, skyview_push_constants, skyview_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, skyview_uniform_set, 0)
-	var skyview_workgroup_size := workgroup_size(skyview_lut_size)
+	var skyview_workgroup_size := RenderContext.workgroup_size_2d(skyview_lut_size)
 	rd.compute_list_dispatch(compute_list, skyview_workgroup_size.x, skyview_workgroup_size.y, 1)
 
 	rd.compute_list_bind_compute_pipeline(compute_list, ap_pipeline)
 	var ap_push_constants := _encode_ap_push_constants()
 	rd.compute_list_set_push_constant(compute_list, ap_push_constants, ap_push_constants.size())
 	rd.compute_list_bind_uniform_set(compute_list, ap_uniform_set, 0)
-	var ap_workgroup_size := workgroup_size_3d(ap_lut_size)
+	var ap_workgroup_size := RenderContext.workgroup_size_3d(ap_lut_size)
 	rd.compute_list_dispatch(compute_list, ap_workgroup_size.x, ap_workgroup_size.y, ap_workgroup_size.z)
 
 	rd.compute_list_end()
 
 	# We don't need to manually call rd.submit() since we're using the main rendering device;
 	# only local devices are allowed to manually submit/sync.
-
-func _cleanup_compute_resources():
-	assert(RenderingServer.is_on_render_thread())
-	rids.reverse()
-	for rid in rids:
-		rd.free_rid(rid)
-
-func create_compute_pipeline(shader: RID) -> RID:
-	var pipeline := rd.compute_pipeline_create(shader)
-	rids.push_back(pipeline)
-	return pipeline
-
-func create_uniform_buffer(array: PackedByteArray) -> RID:
-	var buffer := rd.uniform_buffer_create(array.size(), array)
-	rids.push_back(buffer)
-	return buffer
-
-func create_storage_buffer(array: PackedByteArray) -> RID:
-	var buffer := rd.storage_buffer_create(array.size(), array)
-	rids.push_back(buffer)
-	return buffer
-
-func uniform(type: RenderingDevice.UniformType, binding: int, ids: Array[RID]) -> RDUniform:
-	var u := RDUniform.new()
-	u.uniform_type = type
-	u.binding = binding
-	for rid in ids:
-		u.add_id(rid)
-	return u
-
-func create_uniform_set(uniforms: Array[RDUniform], shader: RID, shader_set: int) -> RID:
-	var uniform_set := rd.uniform_set_create(uniforms, shader, shader_set)
-	rids.push_back(uniform_set)
-	return uniform_set
-
-func create_texture_2d(size: Vector2i, format: RenderingDevice.DataFormat) -> RID:
-	return create_texture(RenderingDevice.TEXTURE_TYPE_2D, Vector3i(size.x, size.y, 1), format)
-
-func create_texture_3d(size: Vector3i, format: RenderingDevice.DataFormat) -> RID:
-	return create_texture(RenderingDevice.TEXTURE_TYPE_3D, size, format)
-
-func create_texture(type: RenderingDevice.TextureType, size: Vector3i, format: RenderingDevice.DataFormat) -> RID:
-	var tf := RDTextureFormat.new()
-	tf.texture_type = type
-	tf.format = format
-	tf.width = size.x
-	tf.height = size.y
-	tf.depth = size.z
-	tf.array_layers = 1
-	tf.mipmaps = 1
-	tf.usage_bits = (
-		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT |
-		RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
-		RenderingDevice.TEXTURE_USAGE_STORAGE_BIT |
-		RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |
-		RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
-	)
-	var texture := rd.texture_create(tf, RDTextureView.new())
-	rids.push_back(texture)
-	return texture
-
-func create_sampler() -> RID:
-	var ss := RDSamplerState.new()
-	ss.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
-	ss.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
-	var sampler := rd.sampler_create(ss)
-	rids.push_back(sampler)
-	return sampler
-
-# Returns required workgroup size to process a given texture, given configured LOCAL_SIZE.
-func workgroup_size(texture_size: Vector2i) -> Vector2i:
-	# In case texture is not a perfect multiple of LOCAL_SIZE, we compute a slightly larger
-	# workgroup size.
-	return (texture_size - Vector2i(1, 1)) / LOCAL_SIZE + Vector2i(1, 1)
-
-func workgroup_size_3d(texture_size: Vector3i) -> Vector3i:
-	# We assume local size is smaller than a layer of the texture.
-	var size_2d := workgroup_size(Vector2i(texture_size.x, texture_size.y))
-	return Vector3i(size_2d.x, size_2d.y, texture_size.z)
-
-# Loads and compiles a compute shader from the given path.
-func load_compute_shader(file_path: String) -> RID:
-	var shader_text := expand_shader(file_path)
-	var shader_source := RDShaderSource.new()
-	shader_source.set_stage_source(RenderingDevice.SHADER_STAGE_COMPUTE, shader_text)
-	var shader_spirv := rd.shader_compile_spirv_from_source(shader_source)
-	assert(shader_spirv.compile_error_compute.is_empty(), "Shader compilation error: " + shader_spirv.compile_error_compute)
-	var shader := rd.shader_create_from_spirv(shader_spirv)
-	rids.push_back(shader)
-	return shader
-
-# Reads and expands #includes in the shader source. Godot's existing glsl #include functionality is
-# buggy, see https://github.com/godotengine/godot/issues/76024.
-# To avoid the editor complaining about your shaders, you can use file extensions that Godot doesn't
-# look for, like `.comp` for compute shaders, and `.glsl.inc` for included GLSL snippets.
-func expand_shader(file_path: String) -> String:
-	var shader_text := read_file(file_path)
-	var regex := RegEx.new()
-	# Muti-line regex for includes. We use a pragma to avoid clashing with the built in #include scheme.
-	regex.compile("(?m)^\\s*#pragma\\s+include\\s+\"(.*)\"")
-	# Safety net, in case we include a file that includes itself recursively.
-	const MAX_RUNS := 100
-	var runs := 0
-	while true:
-		runs += 1
-		if runs > MAX_RUNS:
-			printerr("Exceeded maximum iterations while expanding shader, is there a circular include? Expanded source: ", shader_text.substr(0, 1000))
-			return ""
-		# We don't need to track a start index because we repeatedly search until we run out of
-		# substrings to replace.
-		var result := regex.search(shader_text)
-		if !result:
-			# We're done.
-			break
-		var include_path := result.get_string(1)
-		var included_snippet := read_file(include_path)
-		shader_text = string_replace(shader_text, included_snippet, result.get_start(), result.get_end())
-	return shader_text
-
-# Replaces the substring in str between [from, to] inclusive with the given replacement.
-func string_replace(string: String, replacement: String, from: int, to: int) -> String:
-	return string.substr(0, from) + replacement + string.substr(to + 1)
-
-func read_file(file_path: String) -> String:
-	var file := FileAccess.open(file_path, FileAccess.READ)
-	if file == null:
-		printerr("Could not open file: ", file_path, ", Error: ", FileAccess.get_open_error())
-		return ""
-	var content := file.get_as_text()
-	file.close()
-	return content
