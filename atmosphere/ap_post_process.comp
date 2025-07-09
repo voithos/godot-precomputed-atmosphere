@@ -1,3 +1,5 @@
+// TODO: Add comments
+
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break
 // shader_compile_spirv_from_source).
@@ -9,11 +11,61 @@
 // AMD GPUs use 64.
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(push_constant, std430) uniform PushConstants { ivec2 texture_size; }
+// This barely fits; probably better to just move these to a uniform buffer.
+layout(push_constant, std430) uniform PushConstants {
+  ivec2 texture_size;
+  float max_distance_km;
+  vec3 luminance_multiplier;
+  mat4 inv_projection;
+}
 pc;
 
 layout(rgba16f, set = 0, binding = 0) uniform image2D color_image;
+// Depth texture is disallowed from being an image, so we must use a sampler.
+// Note, it's important that the sampler uses NEAREST filtering.
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
+
+layout(set = 0, binding = 2) uniform sampler3D ap_lut;
+
+float distance_to_fragment(vec2 uv, float depth) {
+  // Reconstruct view space position.
+  // Godot uses reverse-Z depth, while still adhering to the [-1, 1] OpenGL NDC
+  // format, so we have to map back ourselves.
+  float forward_z = 1.0 - depth;
+  vec3 ndc = vec3(uv, forward_z) * 2.0 - 1.0;
+  vec4 view = pc.inv_projection * vec4(ndc, 1.0);
+  view.xyz /= view.w;
+  // z will be negative, but that's fine since we're getting the length.
+  return length(view);
+}
+
+// Maps a value from one range to another.
+float map(float value, float min1, float max1, float min2, float max2) {
+  return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+}
+
+vec4 sample_ap_lut(vec2 uv, float frag_dist_km) {
+  // Undo the squared distribution.
+  float distance_factor = sqrt(frag_dist_km / pc.max_distance_km);
+
+  int layers = textureSize(ap_lut, /*lod=*/0).z;
+  // Determine the global [0, 1] range offset for each layer.
+  float layer_offset = OFFSET_AP_LAYER / float(layers);
+
+  // If we were to sample with the distance factor directly, when it equates to
+  // layer_offset, we'd be sampling at the very center depth coordinate of the
+  // first texture layer, which means we'd get some filtering of the second
+  // layer's colors. However, this is incorrect, since we know that the first
+  // layer was generated precisely at the offset distance, so to take this into
+  // account we map the factor.
+  float w = saturate(
+      map(distance_factor, layer_offset, 1.0 - layer_offset, 0.0, 1.0));
+
+  vec3 uvw = vec3(uv, w);
+  // Fade out the effect between camera and first layer.
+  float fade_out = saturate(distance_factor * 2.0 * float(layers));
+  return fade_out * texture(ap_lut, uvw);
+}
 
 void main() {
   ivec2 texture_size = pc.texture_size;
@@ -22,17 +74,21 @@ void main() {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord, texture_size);
+  float depth = texture(depth_texture, uv).r;
+  if (depth == 0.0) {
+    // Hit the sky, nothing to do.
+    return;
+  }
+  float frag_dist = distance_to_fragment(uv, depth);
+  float frag_dist_km = frag_dist * 1e-3;
+
+  vec4 ap_color = sample_ap_lut(uv, frag_dist_km);
+  // Amplify luminance.
+  ap_color.rgb *= pc.luminance_multiplier;
 
   vec4 color = imageLoad(color_image, texel_coord);
-
-  // Temp grayscale for funsies.
-  float gray = color.r * 0.2125 + color.g * 0.7154 + color.b * 0.0721;
-  color.rgb = vec3(gray);
-
-  // More temporary shenanigans for testing.
-  if (uv.x > 0.5) {
-    color = texture(depth_texture, uv) * 10.0;
-  }
-
+  // Aerial perspective should not affect scene opacity; we simply attenuate the
+  // scene's luminance, and then add the in-scattering from aerial perspective.
+  color.rgb = color.rgb * (1.0 - ap_color.a) + ap_color.rgb;
   imageStore(color_image, texel_coord, color);
 }

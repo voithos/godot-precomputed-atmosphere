@@ -30,10 +30,11 @@ layout(rgba32f, set = 0, binding = 2) uniform restrict writeonly image3D ap_lut;
 layout(set = 0, binding = 3) uniform sampler2D transmittance_lut;
 layout(set = 0, binding = 4) uniform sampler2D ms_lut;
 
-// Instead of determining max-distance based on the texture layer directly
-// (invocation ID), we use an offset. That way at layer=0 we'd still get a
-// useful max-dist rather than just getting 0.
-const float OFFSET_LAYER = 0.5;
+float transmittance_to_opacity(vec3 transmittance) {
+  // We compute transmittance per-color, so we have to combine them to get a
+  // single opacity.
+  return 1.0 - dot(transmittance, vec3(1.0 / 3.0));
+}
 
 void main() {
   ivec3 texture_size = pc.texture_size;
@@ -53,7 +54,7 @@ void main() {
   vec3 ray_dir = screen_uv_to_world_dir(uv, camera);
 
   float dist_factor =
-      (float(texel_coord.z) + OFFSET_LAYER) / float(texture_size.z);
+      (float(texel_coord.z) + OFFSET_AP_LAYER) / float(texture_size.z);
   // Use a squared distribution so that more of the layers are closer to the
   // camera, where all the detail matters.
   dist_factor *= dist_factor;
@@ -62,6 +63,6 @@ void main() {
   SkyResult sky = raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
                                pc.raymarch_steps, max_dist, params,
                                transmittance_lut, ms_lut);
-  vec4 color = vec4(sky.luminance, 1.0);
+  vec4 color = vec4(sky.luminance, transmittance_to_opacity(sky.transmittance));
   imageStore(ap_lut, texel_coord, color);
 }

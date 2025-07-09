@@ -1,4 +1,4 @@
-#@tool
+@tool
 extends CompositorEffect
 class_name AerialPerspective
 
@@ -7,7 +7,14 @@ var rctx: RenderContext
 
 var shader: RID
 var pipeline: RID
-var sampler: RID
+var sampler_linear: RID
+var sampler_nearest: RID
+
+# These are assigned every frame by Atmosphere.
+@export var max_distance_km: float = 0.0
+@export var luminance_multiplier := Color(1.0, 1.0, 1.0, 1.0)
+@export var inv_projection := Projection.IDENTITY
+@export var ap_lut: RID
 
 func _init() -> void:
 	effect_callback_type = EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -32,12 +39,14 @@ func _init_shader() -> bool:
 	pipeline = rctx.create_compute_pipeline(shader)
 	# We need a sampler in order to sample the depth buffer, since you can't imageLoad/Store depth
 	# textures in a compute shader.
-	sampler = rctx.create_sampler(RenderingDevice.SAMPLER_FILTER_NEAREST, RenderingDevice.SAMPLER_FILTER_NEAREST)
+	sampler_nearest = rctx.create_sampler(RenderingDevice.SAMPLER_FILTER_NEAREST, RenderingDevice.SAMPLER_FILTER_NEAREST)
+	# Also create a sampler for the 3D LUT.
+	sampler_linear = rctx.create_sampler(RenderingDevice.SAMPLER_FILTER_LINEAR, RenderingDevice.SAMPLER_FILTER_LINEAR)
 	return pipeline.is_valid()
 
 # Called by the rendering thread every frame.
 func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data: RenderData):
-	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_TRANSPARENT and _init_shader():
+	if p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_TRANSPARENT and _init_shader() and ap_lut.is_valid():
 		# Get our render scene buffers object, this gives us access to our render buffers.
 		# Note that implementation differs per renderer hence the need for the cast.
 		var render_scene_buffers: RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
@@ -50,10 +59,13 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 			# We can use a compute shader here.
 			var workgroup_size := RenderContext.workgroup_size_2d(texture_size)
 
-			# Push constant.
+			# Push constants. We don't have a lot of params, so we can just use these.
 			var push_constants := PackedByteArray()
 			var packer := BytePacker.new(push_constants)
 			packer.pack_ivec2(texture_size)
+			packer.pack_float(max_distance_km)
+			packer.pack_vec3(BytePacker.color_to_vec3(luminance_multiplier))
+			packer.pack_mat4_projection(inv_projection)
 			packer.fill_tail_padding()
 
 			# Loop through views just in case we're doing stereo rendering. No extra cost if this is mono.
@@ -67,7 +79,8 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				# since this uniform set will have to change if the color buffer changes.
 				var uniform_set := UniformSetCacheRD.get_cache(shader, 0, [
 					rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 0, [color_image]),
-					rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, [sampler, depth_image]),
+					rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, [sampler_nearest, depth_image]),
+					rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, [sampler_linear, ap_lut]),
 				])
 
 				# Run our compute shader.

@@ -96,6 +96,9 @@ func _initialize_debug_rects() -> void:
 	_skyview_rect.size = skyview_lut_size
 	_skyview_rect.position = Vector2(_ms_rect.position.x + _ms_rect.size.x + 1, 0)
 
+func _is_aerial_perspective_compositor_effect(v: Variant) -> bool:
+	return v is AerialPerspective
+
 func _process(_delta: float) -> void:
 	# TODO: Ideally this should happen after the camera has been moved, otherwise we'll get a 1 frame delay.
 	if directional_light == null:
@@ -109,6 +112,7 @@ func _process(_delta: float) -> void:
 	if world_environment.environment.sky.sky_material is not ShaderMaterial:
 		push_error("Sky material must be the atmosphere shader material")
 		return
+
 	var sky_material: ShaderMaterial = world_environment.environment.sky.sky_material
 	sky_material.set_shader_parameter("sky_luminance_multiplier", sky_luminance_color * sky_luminance_scale)
 	sky_material.set_shader_parameter("sun_angular_diameter", deg_to_rad(sun_angular_diameter_degrees))
@@ -127,6 +131,18 @@ func _process(_delta: float) -> void:
 	var sun_direction := directional_light.quaternion * Vector3.BACK
 
 	RenderingServer.call_on_render_thread(_render_process.bind(camera_transform, inv_projection, sun_direction))
+
+	var idx := world_environment.compositor.compositor_effects.find_custom(_is_aerial_perspective_compositor_effect)
+	if idx == null:
+		push_error("Atmosphere needs an AerialPerspective CompositorEffect registered for aerial perspective")
+		return
+
+	var ap_compositor_effect: AerialPerspective = world_environment.compositor.compositor_effects[idx]
+	ap_compositor_effect.max_distance_km = max_ap_distance_km
+	ap_compositor_effect.luminance_multiplier = ap_luminance_color * ap_luminance_scale
+	ap_compositor_effect.inv_projection = inv_projection
+	ap_compositor_effect.ap_lut = ap_lut
+
 
 ## Render thread code.
 ##

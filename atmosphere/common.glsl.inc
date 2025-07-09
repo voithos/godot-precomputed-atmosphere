@@ -21,6 +21,10 @@ const vec3 UP = vec3(0.0, 1.0, 0.0);
 const float OFFSET_SEGMENT_T = 0.3;
 const float OFFSET_SAMPLE_THETA = 0.3;
 const float OFFSET_SAMPLE_PHI = 0.5;
+// For the aerial perspective LUT, instead of determining max-distance based on
+// the texture layer directly (invocation ID), we use an offset. That way at
+// layer=0 we'd still get a useful max-dist rather than just getting 0.
+const float OFFSET_AP_LAYER = 0.5;
 
 // Rayleigh and mie scattering have a max height before they stop having an
 // effect.

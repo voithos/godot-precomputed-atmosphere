@@ -6,9 +6,9 @@
 [ext_resource type="Script" uid="uid://ceoc11pqv0ur5" path="res://atmosphere/aerial_perspective.gd" id="3_scst5"]
 [ext_resource type="PackedScene" uid="uid://db1l7wi0v6f38" path="res://example/terrain/scene.gltf" id="4_7cn0y"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_wmyp6"]
+[sub_resource type="Texture2DRD" id="Texture2DRD_scst5"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_6rqat"]
+[sub_resource type="Texture2DRD" id="Texture2DRD_wmyp6"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_n67py"]
 shader = ExtResource("1_uheli")
@@ -17,8 +17,8 @@ shader_parameter/sun_angular_diameter = 0.0174533
 shader_parameter/limb_darkening = true
 shader_parameter/ground_radius_km = 6360.0
 shader_parameter/atmosphere_thickness_km = 100.0
-shader_parameter/skyview_lut = SubResource("Texture2DRD_wmyp6")
-shader_parameter/transmittance_lut = SubResource("Texture2DRD_6rqat")
+shader_parameter/skyview_lut = SubResource("Texture2DRD_scst5")
+shader_parameter/transmittance_lut = SubResource("Texture2DRD_wmyp6")
 
 [sub_resource type="Sky" id="Sky_1bk6c"]
 sky_material = SubResource("ShaderMaterial_n67py")
@@ -38,12 +38,17 @@ effect_callback_type = 4
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("3_scst5")
+max_distance_km = 50.0
+luminance_multiplier = Color(10, 10, 10, 10)
+inv_projection = Projection(1.54121, 0, 0, 0, 0, 0.700338, 0, 0, 0, 0, -5.96032e-08, -9.99987, 0, 0, -1, 10.0001)
+ap_lut = RID(788998377187177)
 metadata/_custom_type_script = "uid://ceoc11pqv0ur5"
 
 [sub_resource type="Compositor" id="Compositor_h7cfd"]
 compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_2xiy6")])
 
 [sub_resource type="BoxMesh" id="BoxMesh_pjyox"]
+size = Vector3(10, 10, 10)
 
 [node name="Example" type="Node3D"]
 
@@ -63,10 +68,11 @@ compositor = SubResource("Compositor_h7cfd")
 directional_light = NodePath("../DirectionalLight3D")
 world_environment = NodePath("../WorldEnvironment")
 sun_angular_diameter_degrees = 1.0
+ap_luminance_scale = 10.0
 debug_draw = true
 
 [node name="Cube" type="MeshInstance3D" parent="."]
 mesh = SubResource("BoxMesh_pjyox")
 
 [node name="Terrain" parent="." instance=ExtResource("4_7cn0y")]
-transform = Transform3D(100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0)
+transform = Transform3D(1000, 0, 0, 0, 1000, 0, 0, 0, 1000, 0, 0, 0)
