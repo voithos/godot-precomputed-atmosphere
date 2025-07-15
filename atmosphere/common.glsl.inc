@@ -35,13 +35,15 @@ const float MIE_MAX_HEIGHT_KM = 1.2;
 const float OZONE_PEAK_ABSORPTION_HEIGHT_KM = 40.179;
 const float OZONE_ABSORPTION_FALLOFF_KM = 17.83;
 
-struct CameraParams {
-  vec3 position;
-  mat3 basis;
+struct ViewParams {
+  vec3 camera_position;
+  mat3 camera_basis;
   mat4 inv_projection;
 
-  // Not really camera related per se, but it's a good place for it.
   vec3 sun_direction;
+  // The position of the atmosphere origin point, i.e. the beginning of the
+  // atmosphere.
+  vec3 atmosphere_origin_position;
 };
 
 // Common atmospheric scattering parameters. These are expected to be loaded
@@ -73,16 +75,16 @@ bool out_of_bounds(ivec3 texel_coord, ivec3 texture_size) {
          (texel_coord.z > texture_size.z);
 }
 
-vec3 screen_uv_to_view_dir(vec2 uv, CameraParams camera) {
+vec3 screen_uv_to_view_dir(vec2 uv, ViewParams view_params) {
   vec3 ndc = vec3(uv * 2.0 - 1.0, 1);
-  vec4 view = camera.inv_projection * vec4(ndc, 1.0);
+  vec4 view = view_params.inv_projection * vec4(ndc, 1.0);
   // Don't need to divide by w since it's normalized.
   return normalize(view.xyz);
 }
 
-vec3 screen_uv_to_world_dir(vec2 uv, CameraParams camera) {
-  vec3 view_dir = screen_uv_to_view_dir(uv, camera);
-  return camera.basis * view_dir;
+vec3 screen_uv_to_world_dir(vec2 uv, ViewParams view_params) {
+  vec3 view_dir = screen_uv_to_view_dir(uv, view_params);
+  return view_params.camera_basis * view_dir;
 }
 
 float safe_acos(const float x) { return acos(clamp(x, -1.0, 1.0)); }

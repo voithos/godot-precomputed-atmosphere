@@ -105,7 +105,7 @@ func load_compute_shader(file_path: String) -> RID:
 	var shader_source := RDShaderSource.new()
 	shader_source.set_stage_source(RenderingDevice.SHADER_STAGE_COMPUTE, shader_text)
 	var shader_spirv := rd.shader_compile_spirv_from_source(shader_source)
-	assert(shader_spirv.compile_error_compute.is_empty(), "Shader compilation error: " + shader_spirv.compile_error_compute)
+	assert(shader_spirv.compile_error_compute.is_empty(), "Shader compilation error: " + shader_spirv.compile_error_compute + "\nin file: " + file_path)
 	var shader := rd.shader_create_from_spirv(shader_spirv)
 	rids.push_back(shader)
 	return shader

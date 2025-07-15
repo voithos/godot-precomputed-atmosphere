@@ -29,7 +29,7 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer StorageBlock {
   AtmosphereParams params;
 };
 
-layout(set = 0, binding = 1) uniform UniformBlock { CameraParams camera; };
+layout(set = 0, binding = 1) uniform UniformBlock { ViewParams view; };
 
 layout(rgba32f, set = 0, binding = 2) uniform restrict writeonly image3D ap_lut;
 
@@ -50,14 +50,16 @@ void main() {
   }
   vec2 uv = texel_center_uv(texel_coord.xy, texture_size.xy);
 
-  // We treat y=0 as the surface of the ground. If the camera is "underground",
-  // clamp to a non-zero small number to avoid weird artifacts.
-  vec3 camera_pos_km = camera.position * 1e-3;
-  camera_pos_km.y = max(camera_pos_km.y, 0.1);
+  // Compute camera pos relative to atmosphere origin. We treat the atmosphere
+  // node's position as the surface of the ground. If the camera is
+  // "underground", clamp to a non-zero small number to avoid weird artifacts.
+  vec3 camera_pos_km =
+      (view.camera_position - view.atmosphere_origin_position) * 1e-3;
+  camera_pos_km.y = max(camera_pos_km.y, 0.001);
 
   // Convert local camera pos to earth pos.
   vec3 earth_pos_km = camera_pos_km + vec3(0.0, params.ground_radius_km, 0.0);
-  vec3 ray_dir = screen_uv_to_world_dir(uv, camera);
+  vec3 ray_dir = screen_uv_to_world_dir(uv, view);
 
   float dist_factor =
       (float(texel_coord.z) + OFFSET_AP_LAYER) / float(texture_size.z);
@@ -66,9 +68,9 @@ void main() {
   dist_factor *= dist_factor;
   float max_dist = dist_factor * pc.max_distance_km;
 
-  SkyResult sky = raymarch_sky(earth_pos_km, ray_dir, camera.sun_direction,
-                               pc.raymarch_steps, max_dist, params,
-                               transmittance_lut, ms_lut);
+  SkyResult sky =
+      raymarch_sky(earth_pos_km, ray_dir, view.sun_direction, pc.raymarch_steps,
+                   max_dist, params, transmittance_lut, ms_lut);
   vec4 color = vec4(sky.luminance, transmittance_to_opacity(sky.transmittance));
   imageStore(ap_lut, texel_coord, color);
 }

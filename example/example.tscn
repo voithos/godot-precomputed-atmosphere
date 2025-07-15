@@ -40,8 +40,8 @@ needs_normal_roughness = false
 script = ExtResource("3_scst5")
 max_distance_km = 50.0
 luminance_multiplier = Color(10, 10, 10, 10)
-inv_projection = Projection(1.54121, 0, 0, 0, 0, 0.700338, 0, 0, 0, 0, -5.96032e-08, -9.99987, 0, 0, -1, 10.0001)
-ap_lut = RID(788985492285289)
+inv_projection = Projection(1.16587, 0, 0, 0, 0, 0.700338, 0, 0, 0, 0, -5.96032e-08, -9.99987, 0, 0, -1, 10.0001)
+ap_lut = RID(788998377187177)
 metadata/_custom_type_script = "uid://ceoc11pqv0ur5"
 
 [sub_resource type="Compositor" id="Compositor_h7cfd"]
@@ -67,7 +67,6 @@ compositor = SubResource("Compositor_h7cfd")
 [node name="Atmosphere" parent="." node_paths=PackedStringArray("directional_light", "world_environment") instance=ExtResource("2_pjyox")]
 directional_light = NodePath("../DirectionalLight3D")
 world_environment = NodePath("../WorldEnvironment")
-update_params_in_process = true
 sun_angular_diameter_degrees = 1.0
 ap_luminance_scale = 10.0
 debug_draw = true

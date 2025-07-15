@@ -146,8 +146,9 @@ func update_atmosphere_params() -> void:
 	var camera_transform := camera.global_transform
 	var inv_projection := camera.get_camera_projection().inverse()
 	var sun_direction := directional_light.quaternion * Vector3.BACK
+	var atmosphere_position := global_position
 
-	RenderingServer.call_on_render_thread(_render_process.bind(camera_transform, inv_projection, sun_direction))
+	RenderingServer.call_on_render_thread(_render_process.bind(camera_transform, inv_projection, sun_direction, atmosphere_position))
 
 	var idx := world_environment.compositor.compositor_effects.find_custom(_is_aerial_perspective_compositor_effect)
 	if idx == null:
@@ -167,15 +168,15 @@ func update_atmosphere_params() -> void:
 # Local thread group size.
 const TEXTURE_FORMAT := RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 
-# This size has to match the struct definition of CameraParams, per std140 rules.
-const CAMERA_PARAMS_BYTES = BytePacker.Alignment.VEC3 + BytePacker.Alignment.MAT3 + BytePacker.Alignment.MAT4 + BytePacker.Alignment.VEC3
+# This size has to match the struct definition of ViewParams, per std140 rules.
+const VIEW_PARAMS_BYTES = BytePacker.Alignment.VEC3 + BytePacker.Alignment.MAT3 + BytePacker.Alignment.MAT4 + 2 * BytePacker.Alignment.VEC3
 # This size has to match the struct definition of AtmosphereParams, per std430 rules.
 const ATMOSPHERE_PARAMS_BYTES = 4 * BytePacker.Alignment.FLOAT + 5 * BytePacker.Alignment.VEC3
 
 var rd: RenderingDevice
 
-var camera_params_byte_array: PackedByteArray = PackedByteArray()
-var camera_params_uniform_buffer: RID
+var view_params_byte_array: PackedByteArray = PackedByteArray()
+var view_params_uniform_buffer: RID
 
 var atmosphere_params_byte_array: PackedByteArray = PackedByteArray()
 var atmosphere_params_storage_buffer: RID
@@ -202,12 +203,13 @@ var ap_pipeline: RID
 var ap_lut: RID
 var ap_uniform_set: RID
 
-func _update_camera_params_byte_array(array: PackedByteArray, camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
+func _update_view_params_byte_array(array: PackedByteArray, camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3, atmosphere_position: Vector3) -> void:
 	var updater := BytePacker.new(array, false)
 	updater.pack_vec3(camera_transform.origin)
 	updater.pack_mat3_basis(camera_transform.basis)
 	updater.pack_mat4_projection(inv_projection)
 	updater.pack_vec3(sun_direction)
+	updater.pack_vec3(atmosphere_position)
 	updater.fill_tail_padding()
 
 func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
@@ -224,9 +226,9 @@ func _update_atmosphere_params_byte_array(array: PackedByteArray) -> void:
 	updater.pack_vec3(BytePacker.color_to_vec3(ozone_absorption_factor) * ozone_absorption_scale)
 	updater.fill_tail_padding()
 
-func _update_camera_params_uniform_buffer(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
-	_update_camera_params_byte_array(camera_params_byte_array, camera_transform, inv_projection, sun_direction)
-	rd.buffer_update(camera_params_uniform_buffer, 0, camera_params_byte_array.size(), camera_params_byte_array)
+func _update_view_params_uniform_buffer(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3, atmosphere_position: Vector3) -> void:
+	_update_view_params_byte_array(view_params_byte_array, camera_transform, inv_projection, sun_direction, atmosphere_position)
+	rd.buffer_update(view_params_uniform_buffer, 0, view_params_byte_array.size(), view_params_byte_array)
 
 func _update_atmosphere_params_storage_buffer() -> void:
 	_update_atmosphere_params_byte_array(atmosphere_params_byte_array)
@@ -239,8 +241,8 @@ func _initialize_compute_resources():
 	rctx = RenderContext.new(rd)
 
 	# Shared among the shaders.
-	camera_params_byte_array.resize(CAMERA_PARAMS_BYTES)
-	camera_params_uniform_buffer = rctx.create_uniform_buffer(camera_params_byte_array)
+	view_params_byte_array.resize(VIEW_PARAMS_BYTES)
+	view_params_uniform_buffer = rctx.create_uniform_buffer(view_params_byte_array)
 
 	atmosphere_params_byte_array.resize(ATMOSPHERE_PARAMS_BYTES)
 	atmosphere_params_storage_buffer = rctx.create_storage_buffer(atmosphere_params_byte_array)
@@ -275,7 +277,7 @@ func _initialize_compute_resources():
 	_skyview_texture.texture_rd_rid = skyview_lut
 	skyview_uniform_set = rctx.create_uniform_set([
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [view_params_uniform_buffer]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [skyview_lut]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
@@ -288,7 +290,7 @@ func _initialize_compute_resources():
 	_ap_texture.texture_rd_rid = ap_lut
 	ap_uniform_set = rctx.create_uniform_set([
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 0, [atmosphere_params_storage_buffer]),
-		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [camera_params_uniform_buffer]),
+		rctx.uniform(RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER, 1, [view_params_uniform_buffer]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_IMAGE, 2, [ap_lut]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, [transmittance_sampler, transmittance_lut]),
 		rctx.uniform(RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, [ms_sampler, ms_lut]),
@@ -332,11 +334,11 @@ func _encode_ap_push_constants() -> PackedByteArray:
 	updater.fill_tail_padding()
 	return constants
 
-func _render_process(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3) -> void:
+func _render_process(camera_transform: Transform3D, inv_projection: Projection, sun_direction: Vector3, atmosphere_position: Vector3) -> void:
 	assert(RenderingServer.is_on_render_thread())
 
 	# Update camera params.
-	_update_camera_params_uniform_buffer(camera_transform, inv_projection, sun_direction)
+	_update_view_params_uniform_buffer(camera_transform, inv_projection, sun_direction, atmosphere_position)
 
 	# Update our params storage buffer with latest param values. As an optimization, this could be
 	# skipped if scattering parameters haven't changed (and both the transmittance and MS LUTs
