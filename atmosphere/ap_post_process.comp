@@ -1,4 +1,6 @@
-// TODO: Add comments
+// A post process CompositorEffect that applies aerial perspective to the scene
+// based on a precomputed 3D aerial perspective LUT. Relies on the depth texture
+// to reconstruct distance to fragment. Only affects non-sky fragments.
 
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break

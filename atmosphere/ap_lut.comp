@@ -1,4 +1,10 @@
-// TODO: Comment this file.
+// Renders the aerial perspective LUT, which is a 3D LUT.
+// This compute shader requires camera parameters, and essentially slices the
+// view frustum into several layers of the 3D LUT, with each layer representing
+// the atmospheric scattering clamped to that depth value. For improved nearby
+// variation, this uses a squared factor when computing slice distances. The
+// final 3D LUT texels are RGBA containing the RGB luminance, with A being a
+// "unified opacity" derived as the average transmittance of the RGB components.
 
 // NOTE: The shader source is dynamically loaded/parsed at runtime, so we don't
 // add Godot's #[compute] hint to the top of the file (which would break
