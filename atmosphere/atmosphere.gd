@@ -50,6 +50,13 @@ extends Node3D
 @export var ap_luminance_scale: float = 2.0
 @export var max_ap_distance_km: float = 50.0
 
+@export_group("Exponential Height Fog")
+@export_range(0.0, 0.005, 0.00001) var height_fog_density: float = 0.0004
+@export_range(0.0, 0.05, 0.0001) var height_fog_falloff: float = 0.01
+# Height where the fog is thickest, relative to the surface of the atmosphere.
+@export var height_fog_start_height: float = 0.0
+@export_range(0.0, 1.0) var height_fog_max_opacity: float = 0.25
+
 @export_group("Performance")
 # LUT sizes. These are only created once during _ready()
 @export var transmittance_lut_size := Vector2i(256, 64)
@@ -158,8 +165,13 @@ func update_atmosphere_params() -> void:
 	var ap_compositor_effect: AerialPerspective = world_environment.compositor.compositor_effects[idx]
 	ap_compositor_effect.max_distance_km = max_ap_distance_km
 	ap_compositor_effect.luminance_multiplier = ap_luminance_color * ap_luminance_scale
-	ap_compositor_effect.inv_projection = inv_projection
+	ap_compositor_effect.height_fog_density = height_fog_density
+	ap_compositor_effect.height_fog_falloff = height_fog_falloff
+	ap_compositor_effect.height_fog_start_height = height_fog_start_height
+	ap_compositor_effect.height_fog_max_opacity = height_fog_max_opacity
+	ap_compositor_effect.atmosphere_position = global_position
 	ap_compositor_effect.ap_lut = ap_lut
+	ap_compositor_effect.view_params_uniform_buffer = view_params_uniform_buffer
 
 
 ## Render thread code.

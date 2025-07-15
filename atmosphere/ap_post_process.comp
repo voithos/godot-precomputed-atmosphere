@@ -13,32 +13,48 @@
 // AMD GPUs use 64.
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// This barely fits; probably better to just move these to a uniform buffer.
 layout(push_constant, std430) uniform PushConstants {
   ivec2 texture_size;
   float max_distance_km;
   vec3 luminance_multiplier;
-  mat4 inv_projection;
+  float height_fog_falloff;
+  // Three-part density parameters pre-computed on the CPU. Based on Filament's
+  // implementation. This parameterization allows us to precompute some constant
+  // factors out of the normal exponential height fog equations.
+  //   x -> Density at the start of the fog.
+  //   y -> Falloff factor at camera height, used to compute density at
+  //        fragment.
+  //   z -> Optical depth at camera height.
+  vec3 height_fog_density;
+  float height_fog_max_opacity;
 }
 pc;
 
-layout(rgba16f, set = 0, binding = 0) uniform image2D color_image;
+layout(set = 0, binding = 0) uniform UniformBlock { ViewParams view; };
+
+layout(rgba16f, set = 0, binding = 1) uniform image2D color_image;
 // Depth texture is disallowed from being an image, so we must use a sampler.
 // Note, it's important that the sampler uses NEAREST filtering.
-layout(set = 0, binding = 1) uniform sampler2D depth_texture;
+layout(set = 0, binding = 2) uniform sampler2D depth_texture;
 
-layout(set = 0, binding = 2) uniform sampler3D ap_lut;
+layout(set = 0, binding = 3) uniform sampler3D ap_lut;
 
-float distance_to_fragment(vec2 uv, float depth) {
+vec3 fragment_view_pos(vec2 uv, float depth) {
   // Reconstruct view space position.
   // Godot uses reverse-Z depth, while still adhering to the [-1, 1] OpenGL NDC
   // format, so we have to map back ourselves.
   float forward_z = 1.0 - depth;
-  vec3 ndc = vec3(uv, forward_z) * 2.0 - 1.0;
-  vec4 view = pc.inv_projection * vec4(ndc, 1.0);
+  // Flip UV.y since y=0 is the top of the screen which corresponds to NDC=1,
+  // not -1.
+  vec2 ndc_uv = vec2(uv.x, 1.0 - uv.y);
+  vec3 ndc = vec3(ndc_uv, forward_z) * 2.0 - 1.0;
+  vec4 view = view.inv_projection * vec4(ndc, 1.0);
   view.xyz /= view.w;
-  // z will be negative, but that's fine since we're getting the length.
-  return length(view);
+  return view.xyz;
+}
+
+vec3 view_pos_to_world_pos(vec3 view_pos) {
+  return view.camera_basis * view_pos + view.camera_position;
 }
 
 // Maps a value from one range to another.
@@ -69,6 +85,31 @@ vec4 sample_ap_lut(vec2 uv, float frag_dist_km) {
   return fade_out * texture(ap_lut, uvw);
 }
 
+// Computes an exponential height fog opacity based on the given world position
+// and distance from camera. Note: positions and distances here are assumed to
+// be in _meters_, not kilometers.
+float exponential_height_fog(vec3 world_pos, float frag_dist) {
+  // We compute an "eye vector" based on the world pos vs camera pos. This is
+  // different from the view vector, because it's still oriented in world space
+  // (the origin is simply shifted).
+  vec3 world_eye_vector =
+      (world_pos - view.camera_position) - view.atmosphere_origin_position;
+  float optical_depth_per_meter = pc.height_fog_density.z;
+  // Falloff over the total vertical distance covered.
+  float total_falloff = pc.height_fog_falloff * world_eye_vector.y;
+  // Avoid division by zero.
+  if (abs(total_falloff) > 0.00125) {
+    optical_depth_per_meter =
+        (pc.height_fog_density.z -
+         pc.height_fog_density.x *
+             exp(pc.height_fog_density.y - total_falloff)) /
+        total_falloff;
+  }
+  float optical_depth = optical_depth_per_meter * frag_dist;
+  float transmittance = exp(-optical_depth);
+  return min(1.0 - transmittance, pc.height_fog_max_opacity);
+}
+
 void main() {
   ivec2 texture_size = pc.texture_size;
   ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
@@ -81,12 +122,19 @@ void main() {
     // Hit the sky, nothing to do.
     return;
   }
-  float frag_dist = distance_to_fragment(uv, depth);
+  vec3 view_pos = fragment_view_pos(uv, depth);
+  vec3 world_pos = view_pos_to_world_pos(view_pos);
+  float frag_dist = length(view_pos);
   float frag_dist_km = frag_dist * 1e-3;
 
   vec4 ap_color = sample_ap_lut(uv, frag_dist_km);
   // Amplify luminance.
   ap_color.rgb *= pc.luminance_multiplier;
+  // Apply height fog.
+  float fog_opacity = exponential_height_fog(world_pos, frag_dist);
+  float combined_opacity = 1.0 - (1.0 - ap_color.a) * (1.0 - fog_opacity);
+  ap_color.rgb *= combined_opacity / (ap_color.a + 1e-6);
+  ap_color.a = combined_opacity;
 
   vec4 color = imageLoad(color_image, texel_coord);
   // Aerial perspective should not affect scene opacity; we simply attenuate the
