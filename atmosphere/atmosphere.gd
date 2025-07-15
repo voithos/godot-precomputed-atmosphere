@@ -5,6 +5,13 @@ extends Node3D
 @export var directional_light: DirectionalLight3D
 @export var world_environment: WorldEnvironment
 
+## Whether to automatically update atmosphere shader params in _process.
+## For more control, you can disable this and manually call update_atmosphere_params().
+@export var update_params_in_process: bool = true:
+	set(v):
+		update_params_in_process = v
+		set_process(update_params_in_process)
+
 @export_group("Sky")
 @export var sky_luminance_color: Color = Color.WHITE
 @export var sky_luminance_scale: float = 2.0
@@ -75,6 +82,7 @@ var _ap_texture := Texture3DRD.new()
 var rctx: RenderContext
 
 func _ready() -> void:
+	set_process(update_params_in_process)
 	_initialize_debug_rects()
 	RenderingServer.call_on_render_thread(_initialize_compute_resources)
 
@@ -100,7 +108,16 @@ func _is_aerial_perspective_compositor_effect(v: Variant) -> bool:
 	return v is AerialPerspective
 
 func _process(_delta: float) -> void:
-	# TODO: Ideally this should happen after the camera has been moved, otherwise we'll get a 1 frame delay.
+	update_atmosphere_params()
+
+# Updates all relevant atmosphere properties once relevant properties have been updated.
+# Normally just called from _process, but can
+func update_atmosphere_params() -> void:
+	# Special case when the 'Atmosphere' scene is open. Required attributes can't possibly be wired
+	# up, so we exit early to avoid logspam.
+	if self == get_tree().edited_scene_root:
+		return
+
 	if directional_light == null:
 		push_error("Atmosphere needs a directional light hooked up")
 		return
