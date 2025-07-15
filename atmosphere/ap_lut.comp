@@ -49,6 +49,11 @@ void main() {
     return;
   }
   vec2 uv = texel_center_uv(texel_coord.xy, texture_size.xy);
+  // Important: we flip the generated texture because the 3D LUT is used in a
+  // Godot CompositorEffect, which has scene textures (color, depth) flipped in
+  // order to better match common screen-space assumptions. If we didn't do
+  // this, the aerial perspective effect would be upside down.
+  uv.y = 1.0 - uv.y;
 
   // Compute camera pos relative to atmosphere origin. We treat the atmosphere
   // node's position as the surface of the ground. If the camera is
