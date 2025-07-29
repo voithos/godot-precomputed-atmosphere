@@ -45,8 +45,8 @@ height_fog_falloff = 0.01
 height_fog_start_height = 0.0
 height_fog_max_opacity = 0.25
 atmosphere_position = Vector3(0, 0, 0)
-ap_lut = RID(788981197317993)
-view_params_uniform_buffer = RID(788878118092863)
+ap_lut = RID(788994082219881)
+view_params_uniform_buffer = RID(788891002994751)
 metadata/_custom_type_script = "uid://ceoc11pqv0ur5"
 
 [sub_resource type="Compositor" id="Compositor_h7cfd"]

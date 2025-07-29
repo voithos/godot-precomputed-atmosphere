@@ -62,7 +62,7 @@ extends Node3D
 @export var transmittance_lut_size := Vector2i(256, 64)
 @export var ms_lut_size := Vector2i(32, 32)
 @export var skyview_lut_size := Vector2i(200, 100)
-@export var ap_lut_size := Vector3i(32, 32, 32)
+@export var ap_lut_size := Vector3i(32, 64, 32)
 
 # Raymarch configuration.
 @export var transmittance_raymarch_steps: int = 40
