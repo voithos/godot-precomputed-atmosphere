@@ -10,19 +10,20 @@ var pipeline: RID
 var sampler_linear: RID
 var sampler_nearest: RID
 
-# These are assigned every frame by Atmosphere.
-@export var max_distance_km: float = 0.0
-@export var luminance_multiplier := Color(1.0, 1.0, 1.0, 1.0)
+# These are assigned every frame by Atmosphere, and thus not @exported since we
+# don't want to persist them.
+var max_distance_km: float = 0.0
+var luminance_multiplier := Color(1.0, 1.0, 1.0, 1.0)
 
-@export var height_fog_density: float = 0.0
-@export var height_fog_falloff: float = 0.0
+var height_fog_density: float = 0.0
+var height_fog_falloff: float = 0.0
 # Note, not in km.
-@export var height_fog_start_height: float = 0.0
-@export var height_fog_max_opacity: float = 0.0
-@export var atmosphere_position: Vector3 = Vector3.ZERO
+var height_fog_start_height: float = 0.0
+var height_fog_max_opacity: float = 0.0
+var atmosphere_position: Vector3 = Vector3.ZERO
 
-@export var ap_lut: RID
-@export var view_params_uniform_buffer: RID
+var ap_lut: RID
+var view_params_uniform_buffer: RID
 
 func _init() -> void:
 	effect_callback_type = EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
