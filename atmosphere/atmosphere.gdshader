@@ -92,7 +92,7 @@ vec3 sun_disk(vec3 eye_pos, vec3 eye_dir) {
 	// https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf
 	vec3 limb_darkening_factor = vec3(1.0);
 	if (limb_darkening) {
-		float center_to_edge = acos(cos_theta) / sun_angular_diameter;
+		float center_to_edge = acos(clamp(cos_theta, -1.0, 1.0)) / sun_angular_diameter;
 		float mu = sqrt(1.0 - center_to_edge * center_to_edge);
 		const vec3 a = vec3(0.397, 0.503, 0.652); // RGB wavelength coefficients.
 		limb_darkening_factor = pow(vec3(mu), a);
