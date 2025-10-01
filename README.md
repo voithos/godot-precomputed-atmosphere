@@ -7,7 +7,12 @@ based on the paper
 "[A Scalable and Production Ready Sky and Atmosphere Rendering Technique](https://sebh.github.io/publications/egsr2020.pdf)"
 by Sébastien Hillaire.
 
-Currently, this does not implement aerial perspective or proper space views.
+This project implements real-time sky rendering, including automatic IBL via
+godot's sky shader support. In addition, it includes a Compositor effect that
+applies aerial perspective and an exponential height fog effect based on aerial
+perspective.
+
+Currently, this does not implement proper space views.
 
 Built in Godot v4.4.1. Older versions haven't been tested, but at least v4.0 is
 needed since this requires compute shader support.
@@ -38,8 +43,8 @@ of GPU time:
 ![GPU profile](profile.png)
 
 This is not reflective of final performance impact, as it doesn't include the
-sky draw pass, and Godot itself does a lot of extra passes to generate cubemaps
-from the sky shader.
+sky draw pass nor aerial perspective pass, and Godot itself does a lot of extra
+passes to generate radiance cubemaps from the sky shader.
 
 In addition, the transmittance and MS LUTs don't need to be re-rendered each
 frame unless the atmospheric parameters change (note, sun direction is not one
